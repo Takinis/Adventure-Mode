@@ -1,7 +1,9 @@
 AddTaskSet("ENDING", {
 	tasks = {
-		"MaxHome",
+		"OnlyStaticLayoutTask",
 	},
 	numoptionaltasks = 0,
 	optionaltasks = {},
+	valid_start_tasks = { "OnlyStaticLayoutTask" }
+
 })

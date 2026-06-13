@@ -44,5 +44,5 @@ AddStartLocation("MaxHome", {
 	name           = "MaxHome",
 	location       = "forest",
 	start_setpeice = "MaxwellHome",
-	start_node     = "Clearing",
+	start_node     = "Blank",
 })

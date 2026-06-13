@@ -2,7 +2,7 @@ AddLocation({
     location = "ending",
     version = 2,
     overrides={
-        start_location = "default",
+        start_location = "MaxHome",
         season_start = "default",
         world_size = "default",
         task_set = "default",

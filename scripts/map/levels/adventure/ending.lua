@@ -3,7 +3,7 @@ GLOBAL.setfenv(1, GLOBAL)
 AddAdventureLevel({
 	id = "ENDING",
 	name = "ENDING",
-	location = "ending",
+	location = "forest",
 	nomaxwell = true,
 	version = 4,
 	overrides = {

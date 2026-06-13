@@ -17,6 +17,7 @@ local postinit = {
         "winter_start_easy",
         "winter_start_medium",
         "bargain_start",
+        "maxwellhome",
     },
 }
 
@@ -26,11 +27,15 @@ for k, v in pairs(postinit) do
     end
 end
 
-require("map/ad_layouts")
-require("map/ad_startlocations")
-
-modimport("postinit/map/forest_map")
-
+modimport("scripts/map/ad_layouts")
 modimport("scripts/map/ad_locations")
 modimport("scripts/map/ad_tasksets")
 modimport("scripts/map/levels/adventure")
+modimport("scripts/map/ad_startlocations")
+modimport("scripts/map/tasks/OnlyStaticLayoutTask")
+
+-- require("map/ad_layouts")
+-- require("map/ad_startlocations")
+-- require("map/tasks/OnlyStaticLayoutTask")
+modimport("postinit/map/forest_map")
+
