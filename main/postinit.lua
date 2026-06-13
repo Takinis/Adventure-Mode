@@ -13,9 +13,12 @@ local components_posts = {
     "frograin",
     "sharkboimanager",
     "wavemanager",
+    "birdspawner",
+    "schoolspawner",
 }
 
 modimport("postinit/shardindex")
+modimport("postinit/entityscript")
 modimport("postinit/frontend")
 modimport("postinit/sim")
 
