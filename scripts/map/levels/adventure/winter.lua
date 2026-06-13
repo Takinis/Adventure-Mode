@@ -1,0 +1,38 @@
+GLOBAL.setfenv(1, GLOBAL)
+
+AddAdventureLevel({
+	id = "WINTER",
+	name = "WINTER",
+	location = "forest",
+	version = 4,
+	overrides = {
+		task_set = "WINTER",
+		wanderingtrader_enabled = "none",
+		day = "longdusk",
+		start_location = "WinterStartMedium",
+		start_node = "Clearing",
+		loop = "never",
+		branching = "least",
+		season = "onlywinter",
+		season_start = "winter",
+		weather = { "always", "often" },
+		deerclops = "often",
+		bearger = "never",
+		dragonfly = "never",
+		goosemoose = "never",
+		hounds = "never",
+		mactusk = "always",
+		carrot = "never",
+		berrybush = "rare",
+
+		stageplays = "never",
+
+		portalresurection      = "none",
+		ghostenabled           = "always",
+		ghostsanitydrain       = "always",
+		basicresource_regrowth = "always",
+		spawnmode              = "fixed",
+		resettime              = "default",
+	},
+	substitutes = AdventureModeGetRandomSubstituteList(ADVENTURE_MODE_SUBS_1, 1),
+})

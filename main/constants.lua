@@ -1,0 +1,3 @@
+GLOBAL.setfenv(1, GLOBAL)
+
+CAMPAIGN_LENGTH = 5

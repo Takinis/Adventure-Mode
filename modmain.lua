@@ -1,3 +1,16 @@
--- 起因: 创意工坊中的冒险模式太捞，自己写个高级的
+local modimport = modimport
 
--- TODO 还原冒险模式
+local modules = {
+    "toolutil",
+    "constants",
+    "assets",
+    "tuning",
+    "RPC",
+    "commands",
+    "recipes",
+    "postinit"
+}
+
+for i = 1, #modules do
+    modimport("main/" .. modules[i])
+end

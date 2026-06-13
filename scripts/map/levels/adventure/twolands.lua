@@ -1,0 +1,48 @@
+GLOBAL.setfenv(1, GLOBAL)
+
+AddAdventureLevel({
+	id = "TWOLANDS",
+	name = "TWOLANDS",
+	location = "forest",
+	override_level_string = true,
+	version = 4,
+	overrides = {
+		task_set = "TWOLANDS",
+		is_two_worlds = true,
+		day = "longday",
+		season = "onlysummer",
+		season_start = "autumn",
+		islands = "always",
+		roads = "never",
+		start_location = "BargainStart",
+		start_node = "Clearing",
+		bearger = "never",
+		dragonfly = "never",
+		goosemoose = "never",
+
+		wanderingtrader_enabled = "none",
+		stageplays = "never",
+
+		portalresurection      = "none",
+		ghostenabled           = "always",
+		ghostsanitydrain       = "always",
+		basicresource_regrowth = "always",
+		spawnmode              = "fixed",
+		resettime              = "default",
+	},
+	substitutes = AdventureModeGetRandomSubstituteList(ADVENTURE_MODE_SUBS_1, 3),
+	override_triggers = {
+		["START"] = {
+			{ "weather", "never" },
+			{ "day", "longday" },
+		},
+		["Land of Plenty"] = {
+			{ "weather", "never" },
+			{ "day", "longday" },
+		},
+		["The other side"] = {
+			{ "weather", "often" },
+			{ "day", "longdusk" },
+		},
+	},
+})

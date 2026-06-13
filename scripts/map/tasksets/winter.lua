@@ -1,0 +1,54 @@
+AddTaskSet("WINTER", {
+	tasks = {
+		"Resource-rich Tier2",
+		"Sanity-Blocked Great Plains",
+		"Hounded Greater Plains",
+		"Insanity-Blocked Necronomicon",
+	},
+	numoptionaltasks = 2,
+	optionaltasks = {
+		"Walrus Desolate",
+		"Walled Kill the spiders",
+		"The Deep Forest",
+		"Forest hunters",
+	},
+	set_pieces = {
+		["WesUnlock"] = { restrict_to = "background", tasks = {
+			"Hounded Greater Plains",
+			"Walrus Desolate",
+			"Walled Kill the spiders",
+			"The Deep Forest",
+			"Forest hunters",
+		} },
+		["MacTuskTown"] = { tasks = {
+			"Insanity-Blocked Necronomicon",
+			"Hounded Greater Plains",
+			"Sanity-Blocked Great Plains",
+		} },
+		["ResurrectionStoneWinter"] = { count = 1, tasks = {
+			"Resource-rich Tier2",
+			"Sanity-Blocked Great Plains",
+			"Hounded Greater Plains",
+			"Insanity-Blocked Necronomicon",
+			"Walrus Desolate",
+			"Walled Kill the spiders",
+			"The Deep Forest",
+			"Forest hunters",
+		} },
+	},
+	ordered_story_setpieces = {
+		"TeleportatoRingLayout",
+		"TeleportatoBoxLayout",
+		"TeleportatoCrankLayout",
+		"TeleportatoPotatoLayout",
+		"TeleportatoBaseAdventureLayout",
+	},
+	required_prefabs = {
+		"teleportato_ring",
+		"teleportato_box",
+		"teleportato_crank",
+		"teleportato_potato",
+		"teleportato_base",
+		"chester_eyebone",
+	},
+})

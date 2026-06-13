@@ -1,0 +1,7 @@
+modimport("scripts/map/tasksets/archipelago")
+modimport("scripts/map/tasksets/rainy")
+modimport("scripts/map/tasksets/winter")
+modimport("scripts/map/tasksets/hub")
+modimport("scripts/map/tasksets/twolands")
+modimport("scripts/map/tasksets/darkness")
+modimport("scripts/map/tasksets/ending")

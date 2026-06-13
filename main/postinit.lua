@@ -1,27 +1,28 @@
 local modimport = modimport
 GLOBAL.setfenv(1, GLOBAL)
 
-modimport("postinit/entityscript")
-
-local postinit = {
-    prefabs = {
-        "wormhole",
-        "player_classified",
-    },
-    stategraphs = {
-        "SGwilson",
-        "SGwilson_client",
-    },
-    components = {
-    },
-    widgets = {
-    },
-    multipleprefabs = {
-    },
+local prefab_posts = {
+    "diviningrod",
+    "forest",
+    "player",
+    "cave_entrance",
 }
 
-for k, v in pairs(postinit) do
-    for i = 1, #v do
-        modimport("postinit/" .. k .. "/" .. postinit[k][i])
-    end
+local components_posts = {
+    "worldstate",
+    "frograin",
+    "sharkboimanager",
+    "wavemanager",
+}
+
+modimport("postinit/shardindex")
+modimport("postinit/frontend")
+modimport("postinit/sim")
+
+for _, file_name in ipairs(prefab_posts) do
+    modimport("postinit/prefabs/" .. file_name)
+end
+
+for _, file_name in ipairs(components_posts) do
+    modimport("postinit/components/" .. file_name)
 end

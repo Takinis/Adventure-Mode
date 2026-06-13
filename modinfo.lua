@@ -1,24 +1,22 @@
 name = "Adventure Mode"
 description = ""
 author = "Sydney"
-version = "1.0"
 forumthread = ""
 
-all_clients_require_mod = true
-dst_compatible = true
-
+version = "1.0"
 api_version = 10
 
---dont_starve_compatible = true
---reign_of_giants_compatible = true
+dst_compatible = true
 
-icon_atlas = "images/modicon.xml"
+client_only_mod = false
+all_clients_require_mod = true
+
+icon_atlas = "modicon.xml"
 icon = "modicon.tex"
 
-priority = -100.190583932078545432
+priority = 9000
+server_filter_tags = {"adventure","adventure mode"}
 
-server_filter_tags = {
-}
+mod_dependencies = {}
 
-configuration_options = {
-}
+configuration_options = {}
