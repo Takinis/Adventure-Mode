@@ -28,7 +28,7 @@ AddAdventureLevel({
 		goosemoose = "never",
 		hounds = "never",
 	},
-	hideminimap = true,
+	-- hideminimap = true,
 	teleportaction = "restart",
 	teleportmaxwell = "ADVENTURE_6_TELEPORTFAIL",
 })
