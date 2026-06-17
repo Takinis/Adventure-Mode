@@ -5,6 +5,7 @@ local modules = {
     "constants",
     "assets",
     "tuning",
+    "containers",
     "RPC",
     "commands",
     "recipes",

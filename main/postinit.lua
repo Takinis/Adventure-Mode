@@ -2,7 +2,6 @@ local modimport = modimport
 GLOBAL.setfenv(1, GLOBAL)
 
 local prefab_posts = {
-    "teleportato_container",
     "diviningrod",
     "forest",
     "player",
@@ -18,6 +17,7 @@ local components_posts = {
     "schoolspawner",
 }
 
+modimport("scripts/map/ad_locations")
 modimport("postinit/shardindex")
 modimport("postinit/entityscript")
 modimport("postinit/frontend")
