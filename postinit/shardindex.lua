@@ -1009,8 +1009,13 @@ local function patch_shard_index()
 
     -- Advance to the next chapter in the sequence, generating a fresh world. If the
     -- current chapter is the last one, return to the main world instead.
-    function ShardIndex:AdventureAdvance(cb)
+    function ShardIndex:AdventureAdvance(opts, cb)
+        if type(opts) == "function" and cb == nil then
+            cb = opts
+            opts = nil
+        end
         cb = cb or noop
+        opts = opts or {}
 
         local state = get_adventure_state(self)
         if state == nil or not state.active or state.main == nil then
@@ -1035,7 +1040,8 @@ local function patch_shard_index()
         state.chapter = next_chapter
         state.current_preset = next_preset
         state.current_session_id = nil
-        state.player_sessions = merge_session_lists(collect_player_sessions(), state.adventure_player_sessions)
+        local player_sessions = opts.player_sessions or collect_player_sessions()
+        state.player_sessions = merge_session_lists(player_sessions, state.adventure_player_sessions)
         state.adventure_player_sessions = deepcopy_safe(state.player_sessions) or {}
         state.first_chapter_start_inv_pending = false
         state.updated_at = os.time()
@@ -1133,13 +1139,13 @@ function StartShardAdventure(opts)
     return true
 end
 
-function AdvanceShardAdventure()
+function AdvanceShardAdventure(opts)
     if ShardGameIndex == nil or not ShardGameIndex:IsAdventureActive() then
         return false
     end
 
     save_players()
-    ShardGameIndex:AdventureAdvance(function(success)
+    ShardGameIndex:AdventureAdvance(opts, function(success)
         if success then
             restart_current_slot({ adventure_transition = "advance" })
         end
@@ -1147,8 +1153,8 @@ function AdvanceShardAdventure()
     return true
 end
 
-function CompleteShardAdventure()
-    return AdvanceShardAdventure()
+function CompleteShardAdventure(opts)
+    return AdvanceShardAdventure(opts)
 end
 
 function ReturnFromShardAdventure(reason)

@@ -2,6 +2,7 @@ local modimport = modimport
 GLOBAL.setfenv(1, GLOBAL)
 
 local prefab_posts = {
+    "teleportato_container",
     "diviningrod",
     "forest",
     "player",

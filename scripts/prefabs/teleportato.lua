@@ -9,207 +9,473 @@ local prefabs = {
 }
 
 local Parts = {
-   teleportato_ring = false,
-   teleportato_crank = false,
-   teleportato_box = false,
-   teleportato_potato = false 
+	teleportato_ring = false,
+	teleportato_crank = false,
+	teleportato_box = false,
+	teleportato_potato = false,
 }
 
 local Part_Symbols = {
-    teleportato_ring = "RING",
-    teleportato_crank = "CRANK",
-    teleportato_box = "BOX",
-    teleportato_potato = "POTATO"
+	teleportato_ring = "RING",
+	teleportato_crank = "CRANK",
+	teleportato_box = "BOX",
+	teleportato_potato = "POTATO",
 }
 
+local Part_Order = {
+	"teleportato_ring",
+	"teleportato_crank",
+	"teleportato_box",
+	"teleportato_potato",
+}
 
-local function TransitionToNextLevel(inst, wilson)
+local PART_COUNT = 4
+local TELEPORTATO_SLOT_ORDER = { 1, 2, 3, 4 }
 
-	-- local all_resurrectors = SaveGameIndex:GetAllResurrectors()
-	-- if all_resurrectors then
+local CheckNextLevelSure
 
+local container_config = {
+	widget = {
+		slotpos = {
+			Vector3(0, 64 + 32 + 8 + 4, 0),
+			Vector3(0, 32 + 4, 0),
+			Vector3(0, -(32 + 4), 0),
+			Vector3(0, -(64 + 32 + 8 + 4), 0),
+		},
+		animbank = "ui_cookpot_1x4",
+		animbuild = "ui_cookpot_1x4",
+		pos = Vector3(0, 0, 0),
+		side_align_tip = 100,
+		buttoninfo = {
+			text = STRINGS.ACTIONS.ACTIVATE.GENERIC,
+			position = Vector3(0, -165, 0),
+		},
+	},
+	type = "cooker",
+	itemtestfn = function(container, item, slot)
+		return not item:HasTag("nonpotatable") and not item:HasTag("bundle")
+	end,
+}
 
+local function CountParts(inst)
+	local parts_count = 0
+	for _, found in pairs(inst.Parts) do
+		if found then
+			parts_count = parts_count + 1
+		end
+	end
+	return parts_count
+end
 
-	-- end
+local function GetPlayerStore(inst, userid)
+	if userid == nil or userid == "" then
+		return nil
+	end
 
-	-- local resurrectors_overworld = {}
-	-- local resurrectors_caves = {}
-	-- local res = wilson.components.resurrectable:FindClosestResurrector()
-	-- if not res then -- If there are no resurrectors in this world
-	-- 	res = SaveGameIndex:GetResurrector() -- Check the caves
-	-- 	while res do -- While we have more resurrectors in the caves, do this business
-	-- 		if res then
-	-- 			SaveGameIndex:DeregisterResurrector(res)
-	-- 		end
-	-- 		res = SaveGameIndex:GetResurrector()
-	-- 	end
-	-- end
-	
-	-- wilson.sg:GoToState("teleportato_teleport")
-	-- local days_survived, start_xp, reward_xp, new_xp, capped = CalculatePlayerRewards(wilson)
-	
-	-- local function onsave()
-	-- 	scheduler:ExecuteInTime(110*FRAMES, function() 
-	-- 		inst.AnimState:PlayAnimation("laugh", false)
-	-- 		inst.AnimState:PushAnimation("active_idle", true)
-	-- 		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_maxwelllaugh", "teleportato_laugh")
-			
-	-- 	end)
-		
-	-- 	scheduler:ExecuteInTime(110*FRAMES+3, function() 
-	-- 		if inst.action == "restart" then
-	-- 			local function onsaved()
-	-- 				StartNextInstance({reset_action=RESET_ACTION.LOAD_SLOT, save_slot = SaveGameIndex:GetCurrentSaveSlot(), maxwell=inst.maxwell}, true)
-	-- 			end
-	-- 			if inst.teleportpos then
-	-- 				GetPlayer().Transform:SetPosition(inst.teleportpos:Get() )
-	-- 			end
-	-- 			SaveGameIndex:SaveCurrent(onsaved)
-	-- 		else
+	inst._playerstores = inst._playerstores or {}
+	inst._playerstores[userid] = inst._playerstores[userid] or {}
+	return inst._playerstores[userid]
+end
 
-	-- 			--THIS IS THE COMMON PATH!!
+local function SaveCurrentContainerForUser(inst, userid)
+	local store = GetPlayerStore(inst, userid)
+	if store == nil or inst.components.container == nil then
+		return
+	end
 
-	-- 			if SaveGameIndex:GetCurrentMode() ~= "adventure" then
-	-- 				SaveGameIndex:ClearCavesResurrectors()
-	-- 			end
-	-- 			SaveGameIndex:CompleteLevel(function() TheFrontEnd:PushScreen(DeathScreen(days_survived, start_xp, true, capped)) end )
-	-- 		end
-	-- 	end)
-	-- end
-	
-	-- wilson.profile:Save(onsave)	
+	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+		local item = inst.components.container:GetItemInSlot(slot)
+		store[slot] = item ~= nil and item:GetSaveRecord() or false
+	end
+end
+
+local function ClearContainerContents(inst)
+	if inst.components.container == nil then
+		return
+	end
+
+	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+		local item = inst.components.container:RemoveItemBySlot(slot)
+		if item ~= nil then
+			item:Remove()
+		end
+	end
+end
+
+local function LoadContainerForUser(inst, userid)
+	if inst.components.container == nil then
+		return
+	end
+
+	ClearContainerContents(inst)
+
+	local store = GetPlayerStore(inst, userid)
+	if store == nil then
+		return
+	end
+
+	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+		local record = store[slot]
+		if type(record) == "table" then
+			local item = SpawnSaveRecord(record)
+			if item ~= nil then
+				inst.components.container:GiveItem(item, slot)
+			end
+		end
+	end
+end
+
+local function CloseTeleportatoContainer(inst)
+	if inst.components.container ~= nil then
+		inst.components.container:Close()
+	end
+	inst._container_userid = nil
+end
+
+local function SetContainerUser(inst, userid)
+	if inst._container_userid == userid then
+		return
+	end
+
+	if inst._container_userid ~= nil then
+		SaveCurrentContainerForUser(inst, inst._container_userid)
+	end
+
+	inst._container_userid = userid
+	LoadContainerForUser(inst, userid)
+end
+
+local function BuildPlayerStoreSaveData(inst)
+	local data = {}
+	for userid, store in pairs(inst._playerstores or {}) do
+		local out = {}
+		local has_any = false
+		for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+			local record = store[slot]
+			if type(record) == "table" then
+				out[slot] = deepcopy(record)
+				has_any = true
+			end
+		end
+		if has_any then
+			data[userid] = out
+		end
+	end
+	return next(data) ~= nil and data or nil
+end
+
+local function LoadPlayerStoreSaveData(inst, data)
+	inst._playerstores = {}
+	if type(data) ~= "table" then
+		return
+	end
+
+	for userid, store in pairs(data) do
+		if type(userid) == "string" and type(store) == "table" then
+			inst._playerstores[userid] = {}
+			for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+				if type(store[slot]) == "table" then
+					inst._playerstores[userid][slot] = deepcopy(store[slot])
+				end
+			end
+		end
+	end
+end
+
+local function FilterInventoryDataForTeleportato(record, slot_records)
+	if type(record) ~= "table" or type(record.data) ~= "table" then
+		return record
+	end
+
+	local out = deepcopy(record)
+	out.data.inventory = out.data.inventory or {}
+	out.data.inventory.items = {}
+	out.data.inventory.equip = {}
+	out.data.inventory.activeitem = nil
+	out.data.sleepinghandsitem = nil
+	out.data.sleepingactiveitem = nil
+
+	for index, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+		local item_record = slot_records ~= nil and slot_records[slot] or nil
+		if type(item_record) == "table" then
+			out.data.inventory.items[index] = deepcopy(item_record)
+		end
+	end
+
+	return out
+end
+
+local function BuildAdventurePlayerSessions(inst)
+	local sessions = {}
+	local seen = {}
+	if AllPlayers == nil then
+		AllPlayers = {}
+	end
+
+	for _, player in ipairs(AllPlayers) do
+		if player.userid ~= nil and player.userid ~= "" and player.prefab ~= nil then
+			local record = player:GetSaveRecord()
+			local store = GetPlayerStore(inst, player.userid)
+			record = FilterInventoryDataForTeleportato(record, store)
+			table.insert(sessions, {
+				userid = player.userid,
+				prefab = player.prefab,
+				data = DataDumper(record, nil, BRANCH ~= "dev"),
+					metadata = DataDumper({ character = player.prefab }, nil, BRANCH ~= "dev"),
+					mode = "full",
+				})
+			seen[player.userid] = true
+		end
+	end
+
+	if ShardGameIndex ~= nil and ShardGameIndex.GetAdventureState ~= nil then
+		local state = ShardGameIndex:GetAdventureState()
+		if state ~= nil and state.adventure_player_sessions ~= nil then
+			for _, session in ipairs(state.adventure_player_sessions) do
+				if session.userid ~= nil and session.userid ~= "" and not seen[session.userid] then
+					table.insert(sessions, session)
+				end
+			end
+		end
+	end
+
+	return sessions
+end
+
+local function EncodeParts(inst)
+	local bits = 0
+	for index, part in ipairs(Part_Order) do
+		if inst.Parts[part] then
+			bits = bits + 2 ^ (index - 1)
+		end
+	end
+	return bits
+end
+
+local function DecodeParts(inst, bits)
+	for index, part in ipairs(Part_Order) do
+		local flag = 2 ^ (index - 1)
+		inst.Parts[part] = bits ~= nil and bits % (flag * 2) >= flag or false
+	end
+end
+
+local function RefreshPartSymbols(inst)
+	for part, symbol in pairs(Part_Symbols) do
+		if inst.Parts[part] then
+			inst.AnimState:Show(symbol)
+		else
+			inst.AnimState:Hide(symbol)
+		end
+	end
+end
+
+local function SyncPartNetvar(inst)
+	if TheWorld.ismastersim then
+		inst._parts:set(EncodeParts(inst))
+	end
+end
+
+local function IsAdventureActive()
+	return ShardGameIndex ~= nil and ShardGameIndex.IsAdventureActive ~= nil and ShardGameIndex:IsAdventureActive()
+end
+
+local function AreAllPlayersNearby(inst)
+	if AllPlayers == nil then
+		return false
+	end
+
+	for _, player in ipairs(AllPlayers) do
+		if player.userid ~= nil and player.userid ~= "" and
+			player.components.health ~= nil and not player.components.health:IsDead() and
+			not player:IsNear(inst, 10) then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function TransitionToNextLevel(inst, doer)
+	if not IsAdventureActive() then
+		return false
+	end
+
+	if inst._activating then
+		return false
+	end
+
+	if not AreAllPlayersNearby(inst) then
+		if doer ~= nil and doer.userid ~= nil then
+			SendModRPCToClient(GetClientModRPC("AdventureMode", "TeleportatoDenied"), doer.userid)
+		end
+		return false
+	end
+
+	if doer ~= nil and doer.userid ~= nil then
+		SaveCurrentContainerForUser(inst, doer.userid)
+	end
+	CloseTeleportatoContainer(inst)
+
+	local player_sessions = BuildAdventurePlayerSessions(inst)
+
+	inst._activating = true
+
+	for _, player in ipairs(AllPlayers) do
+		if player.components.health ~= nil and not player.components.health:IsDead() then
+			player.is_teleporting = true
+			player.sg:GoToState("teleportato_teleport")
+		end
+	end
+
+	inst:DoTaskInTime(110 * FRAMES, function()
+		if inst:IsValid() then
+			inst.AnimState:PlayAnimation("laugh", false)
+			inst.AnimState:PushAnimation("active_idle", true)
+			inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_maxwelllaugh", "teleportato_laugh")
+		end
+	end)
+
+	TheWorld:DoTaskInTime(5, function()
+		inst._activating = false
+		AdvanceShardAdventure({ player_sessions = player_sessions })
+	end)
+
+	return true
 end
 
 local function GetBodyText()
-    return STRINGS.UI.TELEPORTBODY_ADVENTURE
+	return "Begin the next Adventure Mode chapter? All living players must stand near the Teleportato."
 end
 
+CheckNextLevelSure = function(inst, doer)
+	if doer == nil or doer.userid == nil then
+		return
+	end
 
+	SendModRPCToClient(
+		GetClientModRPC("AdventureMode", "Adventure???"),
+		doer.userid,
+		inst,
+		ZipAndEncodeString({
+			title = STRINGS.UI.TELEPORTTITLE,
+			body = GetBodyText(),
+			yes = STRINGS.UI.TELEPORTYES,
+			no = STRINGS.UI.TELEPORTNO,
+			disable_on_no = false,
+		})
+	)
+end
 
-local function CheckNextLevelSure(inst, doer)
-	-- SetPause(true, "portal")
-	
-	-- TheFrontEnd:PushScreen(
-	-- 	PopupDialogScreen(STRINGS.UI.TELEPORTTITLE, GetBodyText(), 
-	-- 		{
-	-- 			{text=STRINGS.UI.TELEPORTYES, cb = 	function() 
-				
-	-- 										print("Lets Go!")
-	-- 										TheFrontEnd:PopScreen()
-	-- 										SetPause(false)
-    --                                         ProfileStatsSet("teleportato_used", true)
-	-- 										local wilson = GetPlayer()
-	-- 										wilson.is_teleporting = true
-	-- 										scheduler:ExecuteInTime(1, function()
-	-- 											TransitionToNextLevel(inst, doer)
-	-- 										end)
-	-- 									end},
-	-- 			{text=STRINGS.UI.TELEPORTNO, cb = function() 
-	-- 													print("Think I'll stay here")
-	-- 													TheFrontEnd:PopScreen()
-	-- 													SetPause(false)
-	-- 													inst.components.activatable.inactive = true
-	-- 												  end}  
-	-- 		}))
+container_config.widget.buttoninfo.fn = function(inst, doer)
+	CheckNextLevelSure(inst, doer)
+end
+
+container_config.widget.buttoninfo.validfn = function(inst)
+	return inst ~= nil and inst.replica.container ~= nil and inst.replica.container:IsOpenedBy(ThePlayer)
 end
 
 local function OnActivate(inst, doer)
-	-- --inst.components.activatable.inactive = false
-	-- if not inst.activatedonce then
-	-- 	inst.activatedonce = true
-	-- 	inst.AnimState:PlayAnimation("activate", false)
-	-- 	inst.AnimState:PushAnimation("active_idle", true)
-	-- 	inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activate", "teleportato_activate")
-	-- 	inst.SoundEmitter:KillSound("teleportato_idle")
-	-- 	inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activeidle_LP", "teleportato_active_idle")
+	if CountParts(inst) < PART_COUNT then
+		return
+	end
 
-	-- 	inst:DoTaskInTime(40*FRAMES, function()
-	-- 		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activate_mouth", "teleportato_activatemouth")
-	-- 	end)
+	if not inst.activatedonce then
+		inst.activatedonce = true
+		inst.AnimState:PlayAnimation("activate", false)
+		inst.AnimState:PushAnimation("active_idle", true)
+		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activate", "teleportato_activate")
+		inst.SoundEmitter:KillSound("teleportato_idle")
+		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activeidle_LP", "teleportato_active_idle")
 
-    --     if inst.action == "restart" then
-	-- 	    inst:DoTaskInTime(2.0, function() TransitionToNextLevel(inst, doer) end)
-    --     elseif SaveGameIndex:GetCurrentMode(Settings.save_slot) == "adventure" then
-    --         inst.components.container.canbeopened = true
-	-- 	    inst:DoTaskInTime(2.0, function()
-	-- 		    inst.components.container:Open(doer)
-	-- 	    end)
-	-- 	else
-	-- 	    inst:DoTaskInTime(3.0, function() CheckNextLevelSure(inst, doer) end)
-	-- 	end
-	-- elseif SaveGameIndex:GetCurrentMode(Settings.save_slot) == "survival" then
-	-- 	CheckNextLevelSure(inst, doer)
-	-- end
+		inst:DoTaskInTime(40 * FRAMES, function()
+			inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activate_mouth", "teleportato_activatemouth")
+		end)
+
+		inst:DoTaskInTime(3.0, function()
+			if inst:IsValid() and doer ~= nil and doer:IsValid() then
+				if inst.components.container ~= nil then
+					inst.components.container.canbeopened = true
+					inst.components.container:Open(doer)
+				end
+			end
+		end)
+	else
+		if inst.components.container ~= nil then
+			inst.components.container.canbeopened = true
+			inst.components.container:Open(doer)
+		end
+	end
 end
 
-
 local function GetStatus(inst)
-    -- ProfileStatsSet("teleportato_inspected", true)
-	-- local partsCount = 0
-	-- for part,found in pairs(inst.collectedParts) do
-	-- 	if found == true then
-	-- 		partsCount = partsCount + 1
-	-- 	end
-	-- end
-
-	-- if partsCount == 4 then
-    --     if SaveGameIndex:GetCurrentMode(Settings.save_slot) == "adventure" then
-    --         local rodbase = TheSim:FindFirstEntityWithTag("rodbase")
-    --         if rodbase and rodbase.components.lock and rodbase.components.lock:IsLocked() then
-    --             return "LOCKED"
-    --         end
-    --     else
-	-- 	    return "ACTIVE"
-    --     end
-	-- elseif partsCount > 0 then
-	-- 	return "PARTIAL"
-	-- end
+	local parts_count = CountParts(inst)
+	if parts_count >= PART_COUNT then
+		local rodbase = TheSim:FindFirstEntityWithTag("rodbase")
+		if rodbase ~= nil and rodbase.components.lock ~= nil and rodbase.components.lock:IsLocked() then
+			return "LOCKED"
+		end
+		return "ACTIVE"
+	elseif parts_count > 0 then
+		return "PARTIAL"
+	end
 end
 
 local function ItemTradeTest(inst, item)
-	if item:HasTag("teleportato_part") then
-		return true
-	end
-	return false
+	return item:HasTag("teleportato_part")
 end
 
 local function PowerUp(inst)
-    -- ProfileStatsSet("teleportato_powerup", true)
+	if inst._powered then
+		return
+	end
+
+	inst._powered = true
 	inst.AnimState:PlayAnimation("power_on", false)
 	inst.AnimState:PushAnimation("idle_on", true)
-
-	-- inst.components.activatable.inactive = true
-
-	-- if SaveGameIndex:GetCurrentMode(Settings.save_slot) == "adventure" then
-	-- 	inst:SetInherentSceneAltAction(ACTIONS.TRAVEL)
-	-- end
-	
-	-- inst.travel_action_fn = function(doer) CheckNextLevelSure(inst, doer) end
-
 	inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_powerup", "teleportato_on")
 	inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_idle_LP", "teleportato_idle")
+
+	if inst.components.activatable ~= nil then
+		inst.components.activatable.inactive = true
+	end
+
+	if TheWorld.ismastersim then
+		inst._poweredup:set(true)
+	end
+end
+
+local function OnPowerDirty(inst)
+	if inst._poweredup:value() then
+		PowerUp(inst)
+	end
+end
+
+local function OnPartsDirty(inst)
+	DecodeParts(inst, inst._parts:value())
+	RefreshPartSymbols(inst)
 end
 
 local function TestForPowerUp(inst)
-	local AllParts = true
-	for k, v in pairs(inst.Parts) do
-		if v == false then
-			inst.AnimState:Hide(Part_Symbols[k])
-			AllParts = false
-		else
-			inst.AnimState:Show(Part_Symbols[k])
-		end
+	RefreshPartSymbols(inst)
+	SyncPartNetvar(inst)
+
+	if CountParts(inst) < PART_COUNT then
+		return
 	end
-	if AllParts == true then
-		--this is a controller hack. It's... kinda gross
+
+	if inst.components.trader ~= nil then
 		inst.components.trader:Disable()
-		local rodbase = TheSim:FindFirstEntityWithTag("rodbase")
-		if rodbase and rodbase.components.lock and rodbase.components.lock:IsLocked() then
-			rodbase:PushEvent("ready")
+	end
+
+	local rodbase = TheSim:FindFirstEntityWithTag("rodbase")
+	if rodbase ~= nil and rodbase.components.lock ~= nil and rodbase.components.lock:IsLocked() then
+		if not inst._waiting_for_powerup then
+			inst._waiting_for_powerup = true
 			inst:ListenForEvent("powerup", PowerUp)
-		else
-			inst:DoTaskInTime(0.5, PowerUp)
 		end
+		rodbase:PushEvent("ready")
+	else
+		inst:DoTaskInTime(0.5, PowerUp)
 	end
 end
 
@@ -221,76 +487,107 @@ local function ItemGet(inst, giver, item)
 	end
 end
 
-
--- local function MakeComplete(inst)
--- 	print("Made Complete")
--- 	inst.collectedParts = {teleportato_ring = true, teleportato_crank = true, teleportato_box = true, teleportato_potato = true }
--- end
-
 local function OnLoad(inst, data)
-	-- if data then
-	-- 	if data.makecomplete == 1 then
-	-- 		print("has make complete data")
-	-- 		MakeComplete(inst)
-	-- 		TestForPowerUp(inst)
-	-- 	end
-	--     if data.collectedParts then
-	-- 	    inst.collectedParts = data.collectedParts
-	-- 	    TestForPowerUp(inst)
-	-- 	end
-	-- 	inst.action = data.action
-	-- 	inst.maxwell = data.maxwell
-	-- 	if data.teleportposx and data.teleportposz then
-	-- 	    inst.teleportpos = Vector3(data.teleportposx, 0, data.teleportposz)
-	-- 	end
-	-- end
+	if data ~= nil and data.Parts ~= nil then
+		for part, _ in pairs(Part_Symbols) do
+			inst.Parts[part] = data.Parts[part] == true
+		end
+	end
+
+	inst.activatedonce = data ~= nil and data.activatedonce or false
+	inst._powered = data ~= nil and data.powered or false
+	inst._activating = false
+	inst._waiting_for_powerup = false
+	inst._container_userid = nil
+	LoadPlayerStoreSaveData(inst, data ~= nil and data.playerstores or nil)
+
+	RefreshPartSymbols(inst)
+	SyncPartNetvar(inst)
+
+	if inst._powered then
+		if inst.activatedonce then
+			inst.AnimState:PlayAnimation("active_idle", true)
+			inst.SoundEmitter:KillSound("teleportato_idle")
+			inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_activeidle_LP", "teleportato_active_idle")
+		else
+			inst.AnimState:PlayAnimation("idle_on", true)
+			inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_idle_LP", "teleportato_idle")
+		end
+		if inst.components.activatable ~= nil then
+			inst.components.activatable.inactive = true
+		end
+		if TheWorld.ismastersim then
+			inst._poweredup:set(true)
+		end
+	else
+		if inst.components.activatable ~= nil then
+			inst.components.activatable.inactive = false
+		end
+		TestForPowerUp(inst)
+	end
 end
 
 local function OnPlayerFar(inst)
-	-- inst.components.container:Close()
 end
 
--- local slotpos = {	Vector3(0,64+32+8+4,0), 
--- 					Vector3(0,32+4,0),
--- 					Vector3(0,-(32+4),0), 
--- 					Vector3(0,-(64+32+8+4),0)}
+local function OnContainerOpen(inst, data)
+	local doer = data ~= nil and data.doer or nil
+	if doer == nil or doer.userid == nil or doer.userid == "" then
+		return
+	end
 
--- local widgetbuttoninfo = {
--- 	text = "Activate",
--- 	position = Vector3(0, -165, 0),
--- 	fn = function(inst, doer) CheckNextLevelSure(inst, doer) end,
--- }
+	if inst.components.container ~= nil and inst.components.container:IsOpenedByOthers(doer) then
+		inst.components.container:Close(doer)
+		if doer.components.talker ~= nil then
+			doer.components.talker:Say("Another survivor is already using the Teleportato.")
+		end
+		return
+	end
 
--- local function ItemTest(inst, item, slot)
--- 	return not item:HasTag("nonpotatable") and not item:HasTag("bundle")
--- end
+	SetContainerUser(inst, doer.userid)
+end
+
+local function OnContainerClose(inst, doer)
+	if doer ~= nil and doer.userid ~= nil and doer.userid ~= "" then
+		SaveCurrentContainerForUser(inst, doer.userid)
+	end
+
+	if inst.components.container ~= nil and not inst.components.container:IsOpen() then
+		inst._container_userid = nil
+	end
+end
 
 local function OnSave(inst, data)
-	-- data.collectedParts = inst.collectedParts
-	-- data.action = inst.action
-	-- data.maxwell = inst.maxwell
-	-- if inst.teleportpos then
-	--     data.teleportposx = inst.teleportpos.x
-	--     data.teleportposz = inst.teleportpos.z
-	-- end
+	if inst._container_userid ~= nil then
+		SaveCurrentContainerForUser(inst, inst._container_userid)
+	end
+
+	data.Parts = {}
+	for part, found in pairs(inst.Parts) do
+		data.Parts[part] = found
+	end
+	data.activatedonce = inst.activatedonce == true
+	data.powered = inst._powered == true
+	data.playerstores = BuildPlayerStoreSaveData(inst)
 end
 
 local function fn()
 	local inst = CreateEntity()
-    inst.entity:AddTransform()
-    inst.entity:AddAnimState()
+	inst.entity:AddTransform()
+	inst.entity:AddAnimState()
 	inst.entity:AddSoundEmitter()
-    inst.entity:AddMiniMapEntity()
-    inst.entity:AddNetwork()
-	
-    inst.AnimState:SetBank("teleporter")
-    inst.AnimState:SetBuild("teleportato_adventure_build")
+	inst.entity:AddMiniMapEntity()
+	inst.entity:AddNetwork()
+
+	inst.AnimState:SetBank("teleporter")
+	inst.AnimState:SetBuild("teleportato_adventure_build")
 	inst.AnimState:PlayAnimation("idle_off", true)
 
 	inst:AddTag("teleportato")
+	inst:AddTag("trader")
 
-    --trader (from trader component) added to pristine state for optimization
-    inst:AddTag("trader")
+	inst._parts = net_tinybyte(inst.GUID, "teleportato._parts", "teleportatopartsdirty")
+	inst._poweredup = net_bool(inst.GUID, "teleportato._poweredup", "teleportatopowerdirty")
 
 	MakeObstaclePhysics(inst, 1.1)
 
@@ -298,52 +595,60 @@ local function fn()
 	inst.MiniMapEntity:SetIcon("teleportato.png")
 	inst.MiniMapEntity:SetPriority(1)
 
-    inst.entity:SetPristine()
+	for _, symbol in pairs(Part_Symbols) do
+		inst.AnimState:Hide(symbol)
+	end
 
-    if not TheWorld.ismastersim then
-        return inst
-    end
+	inst.entity:SetPristine()
 
-	inst:AddComponent("inspectable")	
+	inst.Parts = Parts
+
+	if not TheWorld.ismastersim then
+		inst:ListenForEvent("teleportatopartsdirty", OnPartsDirty)
+		inst:ListenForEvent("teleportatopowerdirty", OnPowerDirty)
+		inst:DoTaskInTime(0, OnPartsDirty)
+		inst:DoTaskInTime(0, OnPowerDirty)
+		return inst
+	end
+
+	inst._powered = false
+	inst._activating = false
+	inst._waiting_for_powerup = false
+	inst.activatedonce = false
+
+	inst:AddComponent("inspectable")
 	inst.components.inspectable.getstatus = GetStatus
 	inst.components.inspectable:RecordViews()
-	
-	inst:AddComponent("activatable")	
+
+	inst:AddComponent("activatable")
 	inst.components.activatable.OnActivate = OnActivate
 	inst.components.activatable.inactive = false
 	inst.components.activatable.quickaction = true
 
-    -- inst:AddComponent("container")
-    -- inst.components.container.canbeopened = false
-    -- inst.components.container.itemtestfn = ItemTest
-    -- inst.components.container:SetNumSlots(4)
-    -- inst.components.container.widgetslotpos = slotpos
-    -- inst.components.container.widgetanimbank = "ui_cookpot_1x4"
-    -- inst.components.container.widgetanimbuild = "ui_cookpot_1x4"
-    -- inst.components.container.widgetpos = Vector3(0,0,0)
-    -- inst.components.container.side_align_tip = 100
-    -- inst.components.container.widgetbuttoninfo = widgetbuttoninfo
-    -- inst.components.container.type = "cooker"
+	inst:AddComponent("container")
+	inst.components.container:WidgetSetup(nil, container_config)
+	inst.components.container.canbeopened = false
+	inst.components.container.skipclosesnd = true
+	inst.components.container.skipopensnd = true
+	inst.components.container.onopenfn = OnContainerOpen
+	inst.components.container.onclosefn = OnContainerClose
 
-    inst:AddComponent("playerprox")
-    inst.components.playerprox:SetDist(3,5)
-    inst.components.playerprox:SetOnPlayerFar(OnPlayerFar)
+	inst:AddComponent("playerprox")
+	inst.components.playerprox:SetDist(3, 5)
+	inst.components.playerprox:SetOnPlayerFar(OnPlayerFar)
 
 	inst:AddComponent("trader")
 	inst.components.trader:SetAcceptTest(ItemTradeTest)
 	inst.components.trader.onaccept = ItemGet
 
-	for part,symbol in pairs(Part_Symbols) do
-		inst.AnimState:Hide(symbol)
-	end
-
-    inst.Parts = Parts
-
+	inst.Adventure = TransitionToNextLevel
 	inst.OnSave = OnSave
 	inst.OnLoad = OnLoad
-	
+
+	RefreshPartSymbols(inst)
+	SyncPartNetvar(inst)
+
 	return inst
 end
 
-return Prefab("teleportato_base", fn, assets, prefabs) 
-
+return Prefab("teleportato_base", fn, assets, prefabs)
