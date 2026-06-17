@@ -14,5 +14,14 @@ AddLevelPreInitAny(function(level)
         return
     end
 
+    if level.id == "ENDING" or level.location == "ending" then
+        return
+    end
+
+    level.required_setpieces = level.required_setpieces or {}
+    if table.contains(level.required_setpieces, "AdventurePortalLayout") then
+        return
+    end
+
     table.insert(level.required_setpieces, "AdventurePortalLayout")
 end)

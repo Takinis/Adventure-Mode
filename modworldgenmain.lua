@@ -7,9 +7,6 @@ local postinit = {
     tasksets = {
         "forest",
     },
-    rooms = {
-        "forest/blockers"
-    },
     static_layouts = {
         "thismeanswar_start",
         "presummer_start",
@@ -28,14 +25,13 @@ for k, v in pairs(postinit) do
 end
 
 modimport("scripts/map/ad_layouts")
-modimport("scripts/map/ad_locations")
 modimport("scripts/map/ad_tasksets")
+modimport("scripts/map/ad_locations")
 modimport("scripts/map/levels/adventure")
 modimport("scripts/map/ad_startlocations")
-modimport("scripts/map/tasks/OnlyStaticLayoutTask")
+
+modimport("scripts/map/tasks/maxwell")
 
 -- require("map/ad_layouts")
 -- require("map/ad_startlocations")
--- require("map/tasks/OnlyStaticLayoutTask")
 modimport("postinit/map/forest_map")
-

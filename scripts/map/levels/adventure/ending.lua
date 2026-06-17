@@ -9,8 +9,14 @@ AddAdventureLevel({
 	overrides = {
 		task_set = "ENDING",
 		wanderingtrader_enabled = "none",
-		start_location = "MaxHome",
-	
+		start_location = "MaxHomeStart",
+		has_ocean = false,
+		keep_disconnected_tiles = true,
+		no_wormholes_to_disconnected_tiles = true,
+		no_joining_islands = true,
+		layout_mode = "LinkNodesByKeys",
+		roads = "default",
+
 		day = "onlynight",
 		season = "onlysummer",
 		weather = "never",
@@ -25,9 +31,4 @@ AddAdventureLevel({
 	hideminimap = true,
 	teleportaction = "restart",
 	teleportmaxwell = "ADVENTURE_6_TELEPORTFAIL",
-	override_triggers = {
-		["MaxHome"] = {
-			{ "areaambient", "VOID" },
-		},
-	},
 })

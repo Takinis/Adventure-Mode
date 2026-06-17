@@ -40,9 +40,9 @@ AddStartLocation("BargainStart", {
 	start_node     = "Clearing",
 })
 
-AddStartLocation("MaxHome", {
-	name           = "MaxHome",
+AddStartLocation("MaxHomeStart", {
+	name           = "MaxHomeStart",
 	location       = "forest",
-	start_setpeice = "MaxwellHome",
-	start_node     = "Blank",
+	start_setpeice = "MaxHomeStart",
+	start_node     = "Clearing",
 })
