@@ -20,14 +20,10 @@
 -- monkey patched to switch session_id/world options safely.
 
 local AddGamePostInit = AddGamePostInit
-local AddPlayerPostInit = AddPlayerPostInit
 
 GLOBAL.setfenv(1, GLOBAL)
 
 local ADVENTURE_INDEX_FILE = "adventure"
-local DEFAULT_LEVEL_SEQUENCE = { "RAINY", "WINTER", "HUB", "ISLANDHOP", "TWOLANDS", "DARKNESS", "ENDING" }
-local SHARD_RPC_NAMESPACE = "shard_adventure_postinit"
-local SHARD_RPC_FORCE_MASTER = "ForcePlayersToMaster"
 local SECONDARY_SHARD_WAIT_TIMEOUT = 30
 local SECONDARY_SHARD_WAIT_POLL_INTERVAL = 0.5
 local SECONDARY_SHARD_SETTLE_DELAY = 0.25
@@ -587,7 +583,7 @@ local function send_force_players_to_master_rpc()
         return
     end
 
-    local rpc = GetShardModRPC(SHARD_RPC_NAMESPACE, SHARD_RPC_FORCE_MASTER)
+    local rpc = GetShardModRPC("AdventureMode", "ForcePlayersToMaster")
     if rpc == nil then
         return
     end
@@ -632,14 +628,6 @@ local function wait_for_secondary_shard_players_empty(cb, timeout, poll_interval
 
     poll()
 end
-
-local function register_shard_rpc()
-    AddShardModRPCHandler(SHARD_RPC_NAMESPACE, SHARD_RPC_FORCE_MASTER, function()
-        force_local_players_to_master()
-    end)
-end
-
-register_shard_rpc()
 
 function give_adventure_first_chapter_start_inv(inst)
     if TheWorld == nil or not TheWorld.ismastersim or ShardGameIndex == nil then
@@ -821,6 +809,46 @@ local function build_worldgenoverride_data(level)
     return data
 end
 
+local adventure_death_check_task = nil
+
+local function schedule_adventure_death_check(inst)
+    if adventure_death_check_task ~= nil then
+        return
+    end
+
+    local started_at = GetTime()
+    local function check()
+        adventure_death_check_task = nil
+
+        if ShardGameIndex == nil or not ShardGameIndex:IsAdventureActive() then
+            return
+        end
+
+        if all_adventure_players_dead() then
+            ReturnFromShardAdventure("death")
+            return
+        end
+
+        if GetTime() - started_at < ADVENTURE_DEATH_CHECK_TIMEOUT and TheWorld ~= nil then
+            adventure_death_check_task = TheWorld:DoTaskInTime(ADVENTURE_DEATH_CHECK_POLL_INTERVAL, check)
+        end
+    end
+
+    local scheduler = TheWorld or inst
+    if scheduler ~= nil then
+        adventure_death_check_task = scheduler:DoTaskInTime(ADVENTURE_DEATH_CHECK_INITIAL_DELAY, check)
+    end
+end
+
+local function on_player_death(inst)
+    if TheWorld == nil or not TheWorld.ismastersim then
+        return
+    end
+    if ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive() then
+        schedule_adventure_death_check(inst)
+    end
+end
+
 -- Force the adventure level's worldgenoverride. Without this, SetServerShardData
 -- re-applies the MAIN world's worldgenoverride on the next boot and we generate
 -- the wrong world. When both presets are supplied, GetWorldgenOverride does a
@@ -842,6 +870,36 @@ local function patch_shard_index()
         return
     end
     ShardIndex._adventure_postinit_patched = true
+
+    function ShardIndex:ForceLocalPlayersToMaster()
+        force_local_players_to_master()
+    end
+
+    function ShardIndex:WaitForSecondaryShardPlayersEmpty(cb, timeout, poll_interval)
+        wait_for_secondary_shard_players_empty(cb, timeout, poll_interval)
+    end
+
+    function ShardIndex:CacheAdventurePlayerSession(inst, mark_late_joiner)
+        cache_adventure_player_session(inst, mark_late_joiner)
+    end
+
+    function ShardIndex:OnAdventurePlayerActivated(inst)
+        on_adventure_player_activated(inst)
+    end
+
+    function ShardIndex:OnAdventurePlayerDeactivated(inst)
+        on_adventure_player_deactivated(inst)
+    end
+
+    function ShardIndex:OnAdventurePlayerDeath(inst)
+        on_player_death(inst)
+    end
+
+    function ShardIndex:RememberStartingInventory(inst)
+        if inst ~= nil and inst.prefab ~= nil and inst.starting_inventory ~= nil then
+            player_starting_inventory[inst.prefab] = deepcopy_safe(inst.starting_inventory)
+        end
+    end
 
     local _Load = ShardIndex.Load
     function ShardIndex:Load(callback)
@@ -918,8 +976,46 @@ local function patch_shard_index()
         end)
     end
 
-    function ShardIndex:BuildPlaylist()
-        
+    local LEVEL_DEFS = {
+        { id = "RAINY",      min_playlist_position = 1, max_playlist_position = 3 },
+        { id = "WINTER",     min_playlist_position = 1, max_playlist_position = 4 },
+        { id = "HUB",        min_playlist_position = 1, max_playlist_position = 4 },
+        { id = "ISLANDHOP",  min_playlist_position = 1, max_playlist_position = 4 },
+        { id = "TWOLANDS",   min_playlist_position = 3, max_playlist_position = 4 },
+        { id = "DARKNESS",   min_playlist_position = CAMPAIGN_LENGTH,     max_playlist_position = CAMPAIGN_LENGTH },
+        { id = "ENDING",     min_playlist_position = CAMPAIGN_LENGTH + 1, max_playlist_position = CAMPAIGN_LENGTH + 1 },
+    }
+
+    function ShardIndex:BuildAdventurePlaylist()
+        local pool = {}
+        for _, def in ipairs(LEVEL_DEFS) do
+            if def.id ~= "DARKNESS" and def.id ~= "ENDING" then
+                table.insert(pool, def)
+            end
+        end
+
+        shuffleArray(pool)
+
+        local playlist = {}
+        for position = 1, CAMPAIGN_LENGTH - 1 do
+            for i, def in ipairs(pool) do
+                if def.min_playlist_position <= position and def.max_playlist_position >= position then
+                    playlist[position] = def.id
+                    table.remove(pool, i)
+                    break
+                end
+            end
+        end
+
+        playlist[CAMPAIGN_LENGTH]     = "DARKNESS"
+        playlist[CAMPAIGN_LENGTH + 1] = "ENDING"
+
+        print("Adventure Mode: built adventure playlist")
+        for i = 1, #playlist do
+            print("  Chapter " .. tostring(i) .. ": " .. tostring(playlist[i]))
+        end
+
+        return playlist
     end
 
     function ShardIndex:IsAdventureActive()
@@ -948,7 +1044,7 @@ local function patch_shard_index()
             return
         end
 
-        local level_sequence = opts.level_sequence or deepcopy_safe(DEFAULT_LEVEL_SEQUENCE)
+        local level_sequence = opts.level_sequence or ShardGameIndex:BuildAdventurePlaylist()
         if #level_sequence == 0 then
             print("[Adventure Mode] Empty level_sequence.")
             cb(false)
@@ -1129,7 +1225,7 @@ function StartShardAdventure(opts)
 
     if TheWorld ~= nil and TheWorld.ismastersim then
         send_force_players_to_master_rpc()
-        wait_for_secondary_shard_players_empty(function()
+        ShardGameIndex:WaitForSecondaryShardPlayersEmpty(function()
             ShardGameIndex:SaveCurrent(begin_after_save)
         end, opts ~= nil and opts.secondary_shard_wait_timeout or nil, opts ~= nil and opts.secondary_shard_wait_poll_interval or nil)
     else
@@ -1169,105 +1265,4 @@ function ReturnFromShardAdventure(reason)
         end
     end)
     return true
-end
-
-local adventure_death_check_task = nil
-
-local function schedule_adventure_death_check(inst)
-    if adventure_death_check_task ~= nil then
-        return
-    end
-
-    local started_at = GetTime()
-    local function check()
-        adventure_death_check_task = nil
-
-        if ShardGameIndex == nil or not ShardGameIndex:IsAdventureActive() then
-            return
-        end
-
-        if all_adventure_players_dead() then
-            ReturnFromShardAdventure("death")
-            return
-        end
-
-        if GetTime() - started_at < ADVENTURE_DEATH_CHECK_TIMEOUT and TheWorld ~= nil then
-            adventure_death_check_task = TheWorld:DoTaskInTime(ADVENTURE_DEATH_CHECK_POLL_INTERVAL, check)
-        end
-    end
-
-    local scheduler = TheWorld or inst
-    if scheduler ~= nil then
-        adventure_death_check_task = scheduler:DoTaskInTime(ADVENTURE_DEATH_CHECK_INITIAL_DELAY, check)
-    end
-end
-
-local function on_player_death(inst)
-    if TheWorld == nil or not TheWorld.ismastersim then
-        return
-    end
-    if ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive() then
-        schedule_adventure_death_check(inst)
-    end
-end
-
-if AddPlayerPostInit ~= nil then
-    AddPlayerPostInit(function(inst)
-        if inst.prefab ~= nil and inst.starting_inventory ~= nil then
-            player_starting_inventory[inst.prefab] = deepcopy_safe(inst.starting_inventory)
-        end
-
-        if TheWorld == nil or not TheWorld.ismastersim then
-            return
-        end
-
-        inst:ListenForEvent("death", on_player_death)
-        inst:ListenForEvent("ms_becameghost", on_player_death)
-        inst:ListenForEvent("playeractivated", on_adventure_player_activated)
-        inst:ListenForEvent("playerdeactivated", on_adventure_player_deactivated)
-        inst:DoTaskInTime(0, on_adventure_player_activated)
-    end)
-end
-
-
-local LEVEL_DEFS = {
-    { id = "RAINY",      min_playlist_position = 1, max_playlist_position = 3 },
-    { id = "WINTER",     min_playlist_position = 1, max_playlist_position = 4 },
-    { id = "HUB",        min_playlist_position = 1, max_playlist_position = 4 },
-    { id = "ISLANDHOP",  min_playlist_position = 1, max_playlist_position = 4 },
-    { id = "TWOLANDS",   min_playlist_position = 3, max_playlist_position = 4 },
-    { id = "DARKNESS",   min_playlist_position = CAMPAIGN_LENGTH,     max_playlist_position = CAMPAIGN_LENGTH },
-    { id = "ENDING",     min_playlist_position = CAMPAIGN_LENGTH + 1, max_playlist_position = CAMPAIGN_LENGTH + 1 },
-}
-
-function ShardIndex:BuildAdventurePlaylist()
-    local pool = {}
-    for _, def in ipairs(LEVEL_DEFS) do
-        if def.id ~= "DARKNESS" and def.id ~= "ENDING" then
-            table.insert(pool, def)
-        end
-    end
-
-    shuffleArray(pool)
-
-    local playlist = {}
-    for position = 1, CAMPAIGN_LENGTH - 1 do
-        for i, def in ipairs(pool) do
-            if def.min_playlist_position <= position and def.max_playlist_position >= position then
-                playlist[position] = def.id
-                table.remove(pool, i)
-                break
-            end
-        end
-    end
-
-    playlist[CAMPAIGN_LENGTH]     = "DARKNESS"
-    playlist[CAMPAIGN_LENGTH + 1] = "ENDING"
-
-    print("Adventure Mode: built adventure playlist")
-    for i = 1, #playlist do
-        print("  Chapter " .. tostring(i) .. ": " .. tostring(playlist[i]))
-    end
-
-    return playlist
 end

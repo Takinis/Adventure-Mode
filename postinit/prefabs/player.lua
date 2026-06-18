@@ -59,14 +59,46 @@ local function ShowAdventureTitle(inst, retries)
     sent_adventure_title_by_userid[inst.userid] = true
 end
 
+local function OnLocalPlayerActivated(inst)
+    TheFrontEnd:OnLocalPlayerActivated(inst)
+end
+
+local function OnLocalPlayerDeactivated(inst)
+    TheFrontEnd:OnLocalPlayerDeactivated(inst)
+end
+
+local function RememberStartingInventory(inst)
+    ShardGameIndex:RememberStartingInventory(inst)
+end
+
+local function OnAdventurePlayerActivated(inst)
+    ShardGameIndex:OnAdventurePlayerActivated(inst)
+end
+
+local function OnAdventurePlayerDeactivated(inst)
+    ShardGameIndex:OnAdventurePlayerDeactivated(inst)
+end
+
+local function OnAdventurePlayerDeath(inst)
+    ShardGameIndex:OnAdventurePlayerDeath(inst)
+end
+
 AddPlayerPostInit(function(inst)
-    if not TheWorld.ismastersim then
-        return
+    RememberStartingInventory(inst)
+
+    if TheWorld ~= nil and TheWorld.ismastersim then
+        inst:ListenForEvent("death", OnAdventurePlayerDeath)
+        inst:ListenForEvent("ms_becameghost", OnAdventurePlayerDeath)
+        inst:ListenForEvent("playeractivated", OnAdventurePlayerActivated)
+        inst:ListenForEvent("playerdeactivated", OnAdventurePlayerDeactivated)
+        inst:DoTaskInTime(0, OnAdventurePlayerActivated)
     end
 
-    inst:ListenForEvent("playeractivated", AD_RPC_FN.OnLocalPlayerActivated)
-    inst:ListenForEvent("playerdeactivated", AD_RPC_FN.OnLocalPlayerDeactivated)
+    inst:ListenForEvent("playeractivated", OnLocalPlayerActivated)
+    inst:ListenForEvent("playerdeactivated", OnLocalPlayerDeactivated)
 
-    inst:ListenForEvent("playeractivated", ShowAdventureTitle)
-    inst:DoTaskInTime(0, ShowAdventureTitle)
+    if TheWorld ~= nil and TheWorld.ismastersim then
+        inst:ListenForEvent("playeractivated", ShowAdventureTitle)
+        inst:DoTaskInTime(0, ShowAdventureTitle)
+    end
 end)
