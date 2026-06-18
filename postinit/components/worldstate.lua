@@ -104,4 +104,19 @@ AddComponentPostInit("worldstate", function(self, inst)
         end
         return out
     end
+
+    function self:FindWorldStateWatchFn(var, listener_inst, target, source_query)
+        local fallback = nil
+
+        for _, entry in ipairs(self:GetWorldStateWatchEntries(var, listener_inst)) do
+            if entry.target == target then
+                if SourceMatches(entry.source, source_query) then
+                    return entry.fn
+                end
+                fallback = fallback or entry.fn
+            end
+        end
+
+        return fallback
+    end
 end)

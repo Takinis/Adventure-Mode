@@ -1,6 +1,7 @@
 local assets = {
 	Asset("ANIM", "anim/maxwell_basic.zip"),
 	Asset("ANIM", "anim/maxwell_build.zip"),
+	Asset("ANIM", "anim/maxwell_adventure.zip"),
 	Asset("ANIM", "anim/max_fx.zip"),
 	Asset("SOUND", "sound/maxwell.fsb"),
 }
@@ -9,71 +10,7 @@ local prefabs =  {
     "diviningrodstart"
 }
 
-local SPEECH =
-{
-	NULL_SPEECH=
-	{
-	    voice = "dontstarve/maxwell/talk_LP",
-		appearanim = "appear",
-		idleanim= "idle",
-		dialogpreanim = "dialog_pre",
-		dialoganim="dial_loop",
-		dialogpostanim = "dialog_pst",
-		disappearanim = "disappear",
-		disableplayer = true,
-		skippable = true,
-		{
-			string = "There is no speech number.", --The string maxwell will say
-			wait = 2, --The time this segment will last for
-			anim = nil, --If there's a different animation, the animation maxwell will play
-			sound = nil, --if there's an extra sound, the sound that will play
-		},
-		{
-			string = nil, 
-			wait = 0.5, 
-			anim = "smoke", 
-			sound = "dontstarve/common/destroy_metal", 
-		},
-		{
-			string = "Go set one.", 
-			wait = 2, 
-			anim = nil, 
-			sound = nil, 
-		},
-		{
-			string = "Goodbye", 
-			wait = 1,
-			anim = nil,
-			sound = "dontstarve/common/destroy_metal",
-		},
-	
-	},
-	SANDBOX_1 =
-	{
-		appearsound = "dontstarve/maxwell/disappear",
-	    voice = "dontstarve/maxwell/talk_LP",
-		appearanim = "appear",
-		idleanim= "idle",
-		dialogpreanim = "dialog_pre",
-		dialoganim="dial_loop",
-		dialogpostanim = "dialog_pst",
-		disappearanim = "disappear",
-		disableplayer = true,
-		skippable = true,
-		{
-			string = STRINGS.MAXWELL_SANDBOXINTROS.ONE,
-			wait = 3,
-			anim = nil,
-			sound = nil,
-		},
-		{
-			string = STRINGS.MAXWELL_SANDBOXINTROS.TWO, 
-			wait = 3, 
-			anim = nil, 
-			sound = nil,
-		},
-	},
-
+local SPEECH = {
 	ADVENTURE_1 =
 	{
 		delay = 2,
@@ -321,11 +258,12 @@ local function fn()
 	inst.entity:AddDynamicShadow()
     inst.entity:AddNetwork()
 
-	inst.DynamicShadow:SetSize( 1.75, .75 )
+	inst.DynamicShadow:SetSize(1.75, .75)
     inst.Transform:SetTwoFaced()
 
     inst.AnimState:SetBank("maxwell")
     inst.AnimState:SetBuild("maxwell_build")
+    inst.AnimState:PlayAnimation("idle", true)
 
     inst:AddTag("notarget")
 

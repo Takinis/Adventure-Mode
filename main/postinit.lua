@@ -17,6 +17,10 @@ local components_posts = {
     "schoolspawner",
 }
 
+local stategraphs_posts = {
+    "SGwilson",
+}
+
 modimport("scripts/map/ad_locations")
 modimport("postinit/shardindex")
 modimport("postinit/entityscript")
@@ -29,4 +33,8 @@ end
 
 for _, file_name in ipairs(components_posts) do
     modimport("postinit/components/" .. file_name)
+end
+
+for _, file_name in ipairs(stategraphs_posts) do
+    modimport("postinit/stategraphs/" .. file_name)
 end
