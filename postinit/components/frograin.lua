@@ -2,7 +2,21 @@ local FrogRain = require("components/frograin")
 local AddComponentPostInit = AddComponentPostInit
 GLOBAL.setfenv(1, GLOBAL)
 
-AddComponentPostInit("components/frograin", function(self, inst)
+local TEST_SPAWN_TIMES = { min = 0, max = 0.1 }
+local TEST_MAX_FROGS = math.max(TUNING.FROG_RAIN_LOCAL_MAX_ADVENTURE, 40)
+
+local function StartAdventureFrogRainTest(self)
+    if not ShardGameIndex:IsAdventureActive() then
+        return
+    end
+
+    TheWorld:PushEvent("ms_setseason", "spring")
+    TheWorld:PushEvent("ms_forceprecipitation", true)
+    self:SetSpawnTimes(TEST_SPAWN_TIMES)
+    self:SetMaxFrogs(TEST_MAX_FROGS)
+end
+
+AddComponentPostInit("frograin", function(self, inst)
     local _OnIsRaining = TheWorld.components.worldstate:GetWatchWorldStateFns("israining", inst)
     local ToggleUpdate = ToolUtil.GetUpvalue(self.SetSpawnTimes, "ToggleUpdate")
     local _localfrogs = ToolUtil.GetUpvalue(_OnIsRaining, "_localfrogs")
@@ -22,4 +36,15 @@ AddComponentPostInit("components/frograin", function(self, inst)
 
     inst:StopWatchingWorldState("israining", _OnIsRaining)
     inst:WatchingWorldState("israining", OnIsRaining)
+
+    self.StartFrogRain = function()
+        if not ShardGameIndex:IsAdventureActive() then
+            return
+        end
+
+        TheWorld:PushEvent("ms_setseason", "spring")
+        TheWorld:PushEvent("ms_forceprecipitation", true)
+        self:SetSpawnTimes(TEST_SPAWN_TIMES)
+        self:SetMaxFrogs(TEST_MAX_FROGS)
+    end
 end)

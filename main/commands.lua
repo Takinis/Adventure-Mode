@@ -25,3 +25,7 @@ function c_giveparts()
     c_give("teleportato_crank")
     c_give("teleportato_potato")
 end
+
+function c_frograin()
+    TheWorld.components.frograin:StartFrogRain()
+end
