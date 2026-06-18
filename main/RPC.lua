@@ -1,116 +1,7 @@
 local AddModRPCHandler = AddModRPCHandler
 local AddClientModRPCHandler = AddClientModRPCHandler
+local AddShardModRPCHandler = AddShardModRPCHandler
 GLOBAL.setfenv(1, GLOBAL)
-
-local MAXWELL_INTRO_INPUTS =
-{
-    CONTROL_PRIMARY,
-    CONTROL_SECONDARY,
-    CONTROL_ATTACK,
-    CONTROL_INSPECT,
-    CONTROL_ACTION,
-    CONTROL_CONTROLLER_ACTION,
-}
-
-local maxwell_intro_state = nil
-
-local function ClearMaxwellIntroInputHandlers()
-    if maxwell_intro_state ~= nil and maxwell_intro_state.inputhandlers ~= nil then
-        for _, handler in ipairs(maxwell_intro_state.inputhandlers) do
-            handler:Remove()
-        end
-        maxwell_intro_state.inputhandlers = nil
-    end
-end
-
-local function SendSkipMaxwellIntro()
-    if maxwell_intro_state ~= nil and maxwell_intro_state.guid ~= nil then
-        SendModRPCToServer(GetModRPC("AdventureMode", "SkipMaxwellIntro"), maxwell_intro_state.guid)
-    end
-end
-
-local function SetMaxwellIntroCamera(x, y, z)
-    local player = ThePlayer
-    if player ~= nil and player:IsValid() and TheCamera ~= nil and
-        type(x) == "number" and type(y) == "number" and type(z) == "number" then
-        local px, py, pz = player.Transform:GetWorldPosition()
-        TheCamera:SetOffset((Vector3(x, y, z) - Vector3(px, py, pz)) * .5 + Vector3(0, 2, 0))
-        TheCamera:SetDistance(15)
-        TheCamera:Snap()
-    end
-end
-
-local function StartMaxwellIntroCutscene(guid, x, y, z)
-    local player = ThePlayer
-    if player == nil or not player:IsValid() then
-        return
-    end
-
-    if maxwell_intro_state == nil then
-        maxwell_intro_state =
-        {
-            inputhandlers = {},
-        }
-    elseif maxwell_intro_state.inputhandlers == nil then
-        maxwell_intro_state.inputhandlers = {}
-    end
-
-    if guid ~= nil then
-        maxwell_intro_state.guid = guid
-    end
-
-    if player.HUD ~= nil then
-        player.HUD:Hide()
-    end
-
-    if player.components.playercontroller ~= nil then
-        player.components.playercontroller:Enable(false)
-    end
-
-    if player.sg ~= nil then
-        player.sg:GoToState("sleep")
-    end
-
-    SetMaxwellIntroCamera(x, y, z)
-
-    if TheInput ~= nil and next(maxwell_intro_state.inputhandlers) == nil then
-        for _, control in ipairs(MAXWELL_INTRO_INPUTS) do
-            table.insert(maxwell_intro_state.inputhandlers, TheInput:AddControlHandler(control, SendSkipMaxwellIntro))
-        end
-    end
-end
-
-local function StopMaxwellIntroCutscene()
-    local player = ThePlayer
-    ClearMaxwellIntroInputHandlers()
-    maxwell_intro_state = nil
-
-    if player ~= nil and player:IsValid() then
-        if player.sg ~= nil and player.sg.currentstate ~= nil and player.sg.currentstate.name == "sleep" then
-            player.sg:GoToState("wakeup")
-        end
-
-        player:DoTaskInTime(1.5, function()
-            if ThePlayer == player and player:IsValid() then
-                if player.components.playercontroller ~= nil then
-                    player.components.playercontroller:Enable(true)
-                end
-                if player.HUD ~= nil then
-                    player.HUD:Show()
-                end
-                if TheCamera ~= nil then
-                    TheCamera:SetDefault()
-                end
-            end
-        end)
-    elseif TheCamera ~= nil then
-        TheCamera:SetDefault()
-    end
-end
-
-function AdventureModeBeginMaxwellIntroCutscene()
-    StartMaxwellIntroCutscene(nil)
-end
 
 AddClientModRPCHandler("AdventureMode", "ShowTitle", function(level, chapter, play_maxwell_intro)
     if TheFrontEnd ~= nil and TheFrontEnd.QueueAdventureTitle ~= nil then
@@ -123,19 +14,15 @@ AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(guid, x, y
         return
     end
 
-    StartMaxwellIntroCutscene(guid, x, y, z)
+    TheFrontEnd:StartMaxwellIntroCutscene(guid, x, y, z)
 end)
 
 AddClientModRPCHandler("AdventureMode", "StopMaxwellIntro", function(guid)
-    if maxwell_intro_state == nil or guid == nil or maxwell_intro_state.guid == guid then
-        StopMaxwellIntroCutscene()
-    end
+    TheFrontEnd:StopMaxwellIntroCutscene(guid)
 end)
 
 AddShardModRPCHandler("AdventureMode", "ForcePlayersToMaster", function()
-    if ShardGameIndex ~= nil and ShardGameIndex.ForceLocalPlayersToMaster ~= nil then
-        ShardGameIndex:ForceLocalPlayersToMaster()
-    end
+    ShardGameIndex:ForceLocalPlayersToMaster()
 end)
 
 AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
