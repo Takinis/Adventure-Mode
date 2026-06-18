@@ -17,7 +17,7 @@ local BlockerTransverseWall = Class(function(self, inst)
             self:BuildAllWalls()
         end)
         if not ok then
-            print("[blockertransversewall] ERROR: " .. tostring(err))
+            print("[Adventure Mode] ERROR: " .. tostring(err))
         end
     end)
 end)
@@ -140,7 +140,7 @@ local function BuildBlocker(map, b, nodes)
         tx, tz = ProbeTravelDir(map, cx, cz)
     end
     if tx == nil then
-        print("[blockertransversewall] no travel axis for node " .. tostring(b.idx) .. "; skipped.")
+        print("[Adventure Mode] no travel axis for node " .. tostring(b.idx) .. "; skipped.")
         return
     end
     local half = ROW_GAP * 0.5
