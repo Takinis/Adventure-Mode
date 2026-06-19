@@ -75,20 +75,6 @@ local function GetCurrentAdventureSpeechName()
     return GetCurrentAdventurePreset() == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
 end
 
-local function AreaHasTag(area, tag)
-    if area == nil or area.tags == nil then
-        return false
-    end
-
-    for _, area_tag in ipairs(area.tags) do
-        if area_tag == tag then
-            return true
-        end
-    end
-
-    return false
-end
-
 local function ApplyTwoLandsPartsIslandTrigger(inst)
     -- huh?
     TheWorld:PushEvent("enter_parts_island", { player = inst, area = "parts_island" })
@@ -105,7 +91,7 @@ local function ApplyTwoLandsPartsIslandTrigger(inst)
 end
 
 local function OnTwoLandsAreaChanged(inst, area)
-    if AreaHasTag(area, "parts_island") then
+    if table.contains(area, "parts_island") then
         ApplyTwoLandsPartsIslandTrigger(inst)
     end
 end
