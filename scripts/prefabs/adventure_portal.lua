@@ -1,5 +1,3 @@
-local BigPopupDialogScreen = require "screens/bigpopupdialog"
-
 local assets = {
 	Asset("ANIM", "anim/portal_adventure.zip"),
 }
@@ -28,8 +26,15 @@ local function Adventure(inst)
     end
 end
 
+local function GetBodyText()
+	return ((require("stats").GetTestGroup() == 0 and STRINGS.UI.STARTADVENTURE.BODY) or STRINGS.UI.STARTADVENTURE.BODY_TEST)
+end
+
 local function OnActivate(inst, doer)
-    SendModRPCToClient(GetClientModRPC("AdventureMode", "Adventure???"), doer.userid, inst)
+    SendModRPCToClient(GetClientModRPC("AdventureMode", "Adventure???"), doer.userid, inst, 
+        ZipAndEncodeString({
+			body = GetBodyText()
+		}))
     return true
 end
 
