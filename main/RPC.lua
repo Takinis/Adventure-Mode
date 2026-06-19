@@ -76,9 +76,7 @@ AddClientModRPCHandler("AdventureMode", "Adventure???", function(inst, popup_dat
     local function no()
         TheFrontEnd:PopScreen()
         SendModRPCToServer(GetModRPC("AdventureMode", "Adventure?"), ZipAndEncodeString({guid = inst.GUID, active = false,}))
-        if popup_data.disable_on_no and inst.components.activatable ~= nil then
-            inst.components.activatable.inactive = true
-        end
+        inst.components.activatable.inactive = true
     end
 
     local buttons = {

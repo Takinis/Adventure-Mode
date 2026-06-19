@@ -361,7 +361,6 @@ CheckNextLevelSure = function(inst, doer)
 			body = GetBodyText(),
 			yes = STRINGS.UI.TELEPORTYES,
 			no = STRINGS.UI.TELEPORTNO,
-			disable_on_no = false,
 		})
 	)
 end
