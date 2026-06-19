@@ -30,6 +30,10 @@ local MAXWELL_SPEECH_BY_CHAPTER =
     "ADVENTURE_6",
 }
 
+local TWO_LANDS_DAY_SEGS = {
+    longdusk = { day = 0.7, dusk = 1.6, night = 0.7 },
+}
+
 local function GetAdventureTitleData()
     local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
     local preset = state ~= nil and state.current_preset or nil
@@ -50,6 +54,17 @@ local function IsAdventureActive()
     return ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive()
 end
 
+local function GetCurrentAdventurePreset()
+    local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
+    local preset = state ~= nil and state.current_preset or nil
+
+    if type(preset) == "table" then
+        preset = preset.id or preset.worldgen_preset or preset.preset
+    end
+
+    return preset
+end
+
 local function GetCurrentAdventureSpeechName()
     local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
     local chapter = state ~= nil and state.chapter or nil
@@ -57,12 +72,42 @@ local function GetCurrentAdventureSpeechName()
         return nil
     end
 
-    local preset = state ~= nil and state.current_preset or nil
-    if type(preset) == "table" then
-        preset = preset.id or preset.worldgen_preset or preset.preset
+    return GetCurrentAdventurePreset() == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
+end
+
+local function AreaHasTag(area, tag)
+    if area == nil or area.tags == nil then
+        return false
     end
 
-    return preset == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
+    for _, area_tag in ipairs(area.tags) do
+        if area_tag == tag then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ApplyTwoLandsPartsIslandTrigger(inst)
+    -- huh?
+    TheWorld:PushEvent("enter_parts_island", { player = inst, area = "parts_island" })
+
+    if TheWorld.state.enter_parts_island then
+        return
+    end
+
+    TheWorld.state.enter_parts_island = true
+    TheWorld:PushEvent("ms_setprecipitationmode", "dynamic")
+    TheWorld:PushEvent("ms_setmoisturescale", 2)
+    TheWorld:PushEvent("ms_forceprecipitation", true)
+    TheWorld:PushEvent("ms_setseasonsegmodifier", { day = 0.7, dusk = 1.6, night = 0.7 })
+end
+
+local function OnTwoLandsAreaChanged(inst, area)
+    if AreaHasTag(area, "parts_island") then
+        ApplyTwoLandsPartsIslandTrigger(inst)
+    end
 end
 
 local function SpawnMaxwellIntroForPlayer(inst, speech_name)
@@ -201,19 +246,28 @@ AddPlayerPostInit(function(inst)
     RememberStartingInventory(inst)
 
     if TheWorld ~= nil and TheWorld.ismastersim then
+        inst.StartAdventureMaxwellIntro = StartReservedMaxwellIntro
+
         inst:ListenForEvent("death", OnAdventurePlayerDeath)
         inst:ListenForEvent("ms_becameghost", OnAdventurePlayerDeath)
         inst:ListenForEvent("playeractivated", OnAdventurePlayerActivated)
         inst:ListenForEvent("playerdeactivated", OnAdventurePlayerDeactivated)
+        inst:ListenForEvent("playeractivated", ShowAdventureTitle)
+        inst:DoTaskInTime(0, ShowAdventureTitle)
         inst:DoTaskInTime(0, OnAdventurePlayerActivated)
+
+        if GetCurrentAdventurePreset() == "TWOLANDS" then
+            inst:ListenForEvent("changearea", OnTwoLandsAreaChanged)
+            inst:DoTaskInTime(0, function(inst)
+                local areaaware = inst.components.areaaware
+                if areaaware ~= nil then
+                    areaaware:UpdatePosition(inst.Transform:GetWorldPosition())
+                    OnTwoLandsAreaChanged(inst, areaaware:GetCurrentArea())
+                end
+            end)
+        end
     end
 
     inst:ListenForEvent("playeractivated", OnLocalPlayerActivated)
     inst:ListenForEvent("playerdeactivated", OnLocalPlayerDeactivated)
-
-    if TheWorld ~= nil and TheWorld.ismastersim then
-        inst.StartAdventureMaxwellIntro = StartReservedMaxwellIntro
-        inst:ListenForEvent("playeractivated", ShowAdventureTitle)
-        inst:DoTaskInTime(0, ShowAdventureTitle)
-    end
 end)

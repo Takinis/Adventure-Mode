@@ -1,3 +1,18 @@
+local function AddTaskRoomTag(task, tag)
+	task.room_tags = task.room_tags or {}
+	if not table.contains(task.room_tags, tag) then
+		table.insert(task.room_tags, tag)
+	end
+end
+
+AddTaskPreInit("Land of Plenty", function(task)
+	AddTaskRoomTag(task, "start_island")
+end)
+
+AddTaskPreInit("The other side", function(task)
+	AddTaskRoomTag(task, "parts_island")
+end)
+
 AddTaskSet("TWOLANDS", {
 	tasks = {
 		"Land of Plenty",

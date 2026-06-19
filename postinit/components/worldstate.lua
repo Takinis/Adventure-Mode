@@ -2,6 +2,10 @@ local AddComponentPostInit = AddComponentPostInit
 GLOBAL.setfenv(1, GLOBAL)
 
 AddComponentPostInit("worldstate", function(self, inst)
+    if self.data.enter_parts_island == nil then
+        self.data.enter_parts_island = false
+    end
+
     local _watchers = ToolUtil.GetUpvalue(self.AddWatcher, "_watchers")
     if _watchers == nil then
         print("[worldstate] failed to find _watchers upvalue")
