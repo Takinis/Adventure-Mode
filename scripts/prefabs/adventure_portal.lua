@@ -27,7 +27,9 @@ local function Adventure(inst)
 end
 
 local function GetBodyText()
-	return ((require("stats").GetTestGroup() == 0 and STRINGS.UI.STARTADVENTURE.BODY) or STRINGS.UI.STARTADVENTURE.BODY_TEST)
+    -- Because you have found Maxwell
+	-- return ((require("stats").GetTestGroup() == 0 and STRINGS.UI.STARTADVENTURE.BODY) or STRINGS.UI.STARTADVENTURE.BODY_TEST)
+	return STRINGS.UI.STARTADVENTURE.BODY_TEST
 end
 
 local function OnActivate(inst, doer)
