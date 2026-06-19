@@ -6,6 +6,7 @@ local prefab_posts = {
     "forest",
     "player",
     "cave_entrance",
+    "world",
 }
 
 local components_posts = {
