@@ -1,124 +1,142 @@
-local AdventureManager = Class(function(self, inst)
+local PARTS_ISLAND_TAG = "parts_island"
+local TWO_LANDS_PRESET = "TWOLANDS"
+local PARTS_ISLAND_SEASON_SEGS = { day = 0.7, dusk = 1.6, night = 0.7 }
+
+return Class(function(self, inst)
     self.inst = inst
-    self.enter_parts_island = false
-    self._onplayerjoined = function(world, player) self:WatchPlayer(player) end
-    self._onplayerleft = function(world, player) self:StopWatchingPlayer(player) end
-    self._onplayerchangearea = function(player, area) self:OnPlayerAreaChanged(player, area) end
-    self._watched_players = {}
 
-    inst:ListenForEvent("ms_playerjoined", self._onplayerjoined)
-    inst:ListenForEvent("ms_playerleft", self._onplayerleft)
-end)
+    local enter_parts_island = false
+    local watched_players = {}
 
-local function GetAdventurePreset()
-    local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
-    local preset = state ~= nil and state.current_preset or nil
+    local function GetAdventurePreset()
+        local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
+        local preset = state ~= nil and state.current_preset or nil
 
-    if type(preset) == "table" then
-        preset = preset.id or preset.worldgen_preset or preset.preset
+        if type(preset) == "table" then
+            preset = preset.id or preset.worldgen_preset or preset.preset
+        end
+
+        return preset
     end
 
-    return preset
-end
-
-function AdventureManager:IsActive()
-    return ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive()
-end
-
-function AdventureManager:IsTwoLands()
-    return self:IsActive() and GetAdventurePreset() == "TWOLANDS"
-end
-
-function AdventureManager:ApplyTwoLandsPartsIslandWeather()
-    self.inst:PushEvent("ms_setprecipitationmode", "dynamic")
-    self.inst:PushEvent("ms_setmoisturescale", 2)
-    self.inst:PushEvent("ms_forceprecipitation", true)
-    self.inst:PushEvent("ms_setseasonsegmodifier", { day = 0.7, dusk = 1.6, night = 0.7 })
-end
-
-function AdventureManager:TriggerTwoLandsPartsIsland(player)
-    self.inst:PushEvent("enter_parts_island", { player = player, area = "parts_island" })
-
-    if self.enter_parts_island then
-        return
+    local function IsAdventureActive()
+        return ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive()
     end
 
-    self.enter_parts_island = true
-    self:ApplyTwoLandsPartsIslandWeather()
-end
-
-function AdventureManager:OnPlayerAreaChanged(player, area)
-    if self:IsTwoLands() and type(area) == "table" and table.contains(area, "parts_island") then
-        self:TriggerTwoLandsPartsIsland(player)
-    end
-end
-
-function AdventureManager:CheckPlayerArea(player)
-    if player == nil or not player:IsValid() or player.components == nil or player.components.areaaware == nil then
-        return
+    local function IsTwoLands()
+        return IsAdventureActive() and GetAdventurePreset() == TWO_LANDS_PRESET
     end
 
-    player.components.areaaware:UpdatePosition(player.Transform:GetWorldPosition())
-    self:OnPlayerAreaChanged(player, player.components.areaaware:GetCurrentArea())
-end
-
-function AdventureManager:WatchPlayer(player)
-    if player == nil then
-        return
+    local function IsPartsIslandArea(area)
+        return table.contains(area.tags, PARTS_ISLAND_TAG)
     end
 
-    if self._watched_players[player] then
-        return
+    function self:ApplyTwoLandsPartsIslandWeather()
+        local world = TheWorld or inst
+        world:PushEvent("ms_setprecipitationmode", "dynamic")
+        world:PushEvent("ms_setmoisturescale", 2)
+        world:PushEvent("ms_forceprecipitation", true)
+        world:PushEvent("ms_setseasonsegmodifier", PARTS_ISLAND_SEASON_SEGS)
     end
 
-    self._watched_players[player] = true
-    player:ListenForEvent("changearea", self._onplayerchangearea)
-    self.inst:DoTaskInTime(0, function()
-        self:CheckPlayerArea(player)
-    end)
-end
+    local function TriggerTwoLandsPartsIsland(player)
+        inst:PushEvent("enter_parts_island", { player = player, area = PARTS_ISLAND_TAG })
 
-function AdventureManager:StopWatchingPlayer(player)
-    if player ~= nil then
-        self._watched_players[player] = nil
-        player:RemoveEventCallback("changearea", self._onplayerchangearea)
+        if enter_parts_island then
+            return
+        end
+
+        enter_parts_island = true
+        self:ApplyTwoLandsPartsIslandWeather()
     end
-end
 
-function AdventureManager:WatchExistingPlayers()
-    if AllPlayers == nil then
-        return
+    local function OnPlayerAreaChanged(player, area)
+        if IsTwoLands() and IsPartsIslandArea(area) then
+            TriggerTwoLandsPartsIsland(player)
+        end
+    end
+
+    local function CheckPlayerArea(player)
+        if player == nil or not player:IsValid() or player.components == nil or player.components.areaaware == nil then
+            return
+        end
+
+        local x, y, z = player.Transform:GetWorldPosition()
+        player.components.areaaware:UpdatePosition(x, y, z)
+        OnPlayerAreaChanged(player, player.components.areaaware:GetCurrentArea())
+    end
+
+    local function WatchPlayer(player)
+        if player == nil or watched_players[player] then
+            return
+        end
+
+        watched_players[player] = true
+        player:ListenForEvent("changearea", OnPlayerAreaChanged)
+        inst:DoTaskInTime(0, function()
+            CheckPlayerArea(player)
+        end)
+    end
+
+    local function StopWatchingPlayer(player)
+        if player ~= nil then
+            watched_players[player] = nil
+            player:RemoveEventCallback("changearea", OnPlayerAreaChanged)
+        end
+    end
+
+    local function OnPlayerJoined(world, player)
+        WatchPlayer(player)
+    end
+
+    local function OnPlayerLeft(world, player)
+        StopWatchingPlayer(player)
     end
 
     for _, player in ipairs(AllPlayers) do
-        self:WatchPlayer(player)
+        WatchPlayer(player)
     end
-end
 
-function AdventureManager:OnSave()
-    return {
-        enter_parts_island = self.enter_parts_island == true,
-    }
-end
+    inst:ListenForEvent("ms_playerjoined", OnPlayerJoined)
+    inst:ListenForEvent("ms_playerleft", OnPlayerLeft)
 
-function AdventureManager:OnLoad(data)
-    self.enter_parts_island = data ~= nil and data.enter_parts_island == true
-    if self.enter_parts_island then
-        self.inst:DoTaskInTime(0, function()
-            self:ApplyTwoLandsPartsIslandWeather()
-        end)
+    function self:IsTwoLands()
+        return IsTwoLands()
     end
-end
 
-function AdventureManager:OnRemoveFromEntity()
-    self.inst:RemoveEventCallback("ms_playerjoined", self._onplayerjoined)
-    self.inst:RemoveEventCallback("ms_playerleft", self._onplayerleft)
+    function self:HasEnteredPartsIsland()
+        return enter_parts_island
+    end
 
-    if AllPlayers ~= nil then
-        for _, player in ipairs(AllPlayers) do
-            self:StopWatchingPlayer(player)
+    function self:WatchPlayer(player)
+        WatchPlayer(player)
+    end
+
+    function self:StopWatchingPlayer(player)
+        StopWatchingPlayer(player)
+    end
+
+    function self:OnSave()
+        return {
+            enter_parts_island = enter_parts_island == true,
+        }
+    end
+
+    function self:OnLoad(data)
+        enter_parts_island = data ~= nil and data.enter_parts_island == true
+        if enter_parts_island then
+            inst:DoTaskInTime(0, function()
+                self:ApplyTwoLandsPartsIslandWeather()
+            end)
         end
     end
-end
 
-return AdventureManager
+    function self:OnRemoveFromEntity()
+        inst:RemoveEventCallback("ms_playerjoined", OnPlayerJoined)
+        inst:RemoveEventCallback("ms_playerleft", OnPlayerLeft)
+
+        for player in pairs(watched_players) do
+            StopWatchingPlayer(player)
+        end
+    end
+end)
