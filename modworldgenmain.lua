@@ -26,7 +26,6 @@ end
 
 modimport("scripts/map/ad_layouts")
 modimport("scripts/map/ad_tasksets")
-modimport("scripts/map/ad_locations")
 modimport("scripts/map/levels/adventure")
 modimport("scripts/map/ad_startlocations")
 

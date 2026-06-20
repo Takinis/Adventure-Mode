@@ -23,7 +23,6 @@ local stategraphs_posts = {
 }
 
 modimport("postinit/widgets/redux/templates")
-modimport("scripts/map/ad_locations")
 modimport("postinit/shardindex")
 modimport("postinit/entityscript")
 modimport("postinit/frontend")
