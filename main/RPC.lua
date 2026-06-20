@@ -53,7 +53,8 @@ AddModRPCHandler("AdventureMode", "SkipMaxwellIntro", function(player, guid)
 end)
 
 AddModRPCHandler("AdventureMode", "RequestMaxwellIntroAfterTitle", function(player)
-    local started = player ~= nil and player.StartAdventureMaxwellIntro ~= nil and player:StartAdventureMaxwellIntro()
+    local maxwell_intro = player ~= nil and player.components ~= nil and player.components.maxwellintrospawner or nil
+    local started = maxwell_intro ~= nil and maxwell_intro:StartReserved()
     if not started and player ~= nil and player.userid ~= nil and player.userid ~= "" then
         SendModRPCToClient(GetClientModRPC("AdventureMode", "StopMaxwellIntro"), player.userid)
     end

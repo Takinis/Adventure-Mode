@@ -861,8 +861,41 @@ local function get_adventure_state(index)
     return index.adventure_state
 end
 
+local function get_adventure_chapter(state)
+    local chapter = state ~= nil and state.chapter or nil
+    return type(chapter) == "number" and chapter or nil
+end
+
+local function has_current_adventure_maxwell_intro_played(state)
+    local chapter = get_adventure_chapter(state)
+    local played_chapters = state ~= nil and state.maxwell_intro_played_chapters or nil
+    return state ~= nil and
+        state.active == true and
+        chapter ~= nil and
+        type(played_chapters) == "table" and
+        played_chapters[chapter] == true
+end
+
 local function set_adventure_state(index, state)
     index.adventure_state = state
+end
+
+local function mark_current_adventure_maxwell_intro_played(index)
+    local state = get_adventure_state(index)
+    local chapter = get_adventure_chapter(state)
+    if state == nil or not state.active or chapter == nil then
+        return false
+    end
+
+    state.maxwell_intro_played_chapters = state.maxwell_intro_played_chapters or {}
+    if state.maxwell_intro_played_chapters[chapter] then
+        return true
+    end
+
+    state.maxwell_intro_played_chapters[chapter] = true
+    state.updated_at = os.time()
+    write_sidecar(index, state)
+    return true
 end
 
 local function patch_shard_index()
@@ -1027,6 +1060,14 @@ local function patch_shard_index()
         return get_adventure_state(self)
     end
 
+    function ShardIndex:IsCurrentAdventureMaxwellIntroPlayed()
+        return has_current_adventure_maxwell_intro_played(get_adventure_state(self))
+    end
+
+    function ShardIndex:MarkCurrentAdventureMaxwellIntroPlayed()
+        return mark_current_adventure_maxwell_intro_played(self)
+    end
+
     function ShardIndex:AdventureBegin(opts, cb)
         cb = cb or noop
         opts = opts or {}
@@ -1075,6 +1116,7 @@ local function patch_shard_index()
                 adventure_player_sessions = {},
                 first_chapter_start_inv_pending = true,
                 first_chapter_start_inv_given = {},
+                maxwell_intro_played_chapters = {},
 
                 main =
                 {

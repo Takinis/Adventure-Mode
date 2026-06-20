@@ -10,4 +10,13 @@ AddPrefabPostInit("world", function(inst)
     if inst.components.blockertransversewall == nil then
         inst:AddComponent("blockertransversewall")
     end
+
+    if inst.components.adventuremanager == nil then
+        inst:AddComponent("adventuremanager")
+        inst:DoTaskInTime(0, function(inst)
+            if inst.components.adventuremanager ~= nil then
+                inst.components.adventuremanager:WatchExistingPlayers()
+            end
+        end)
+    end
 end)
