@@ -1,14 +1,42 @@
-# Adventure-Mode
+## 已实现
 
-# TODO List
-- [ ] 还原单机版的浪
-- [ ] 还原出生点麦斯威尔小剧情
-- [ ] 还原保存四样物品
-- [*] 海洋鱼类不再冒险模式中生成
-- [*] 鸟类不会在海上生成
+- [x] 生存世界会通过 `AdventurePortalLayout` 注入冒险传送门。
+- [x] 冒险传送门 prefab 靠近点亮、远离熄灭、确认弹窗和进入冒险流程。
+- [x] `ShardIndex` 已被 patch，冒险状态保存到独立 sidecar，不直接改原版 shardindex 格式。
+- [x] 进入冒险前会保存主世界 `session_id`、世界配置、服务器配置、启用 mod 和原始 `worldgenoverride.lua`。
+- [x] 每章开始前会写入对应冒险章节的 `worldgenoverride.lua`，清空当前 `session_id` 并重启当前 slot 生成新世界。
+- [x] 冒险完成、死亡或手动返回时会恢复主世界 session 和原始 `worldgenoverride.lua`，并清理离开的冒险 session。
+- [x] 支持 4 个随机前置章节 + 固定 `DARKNESS` + 固定 `ENDING` 的章节播放列表。
+- [x] 已定义 `RAINY`、`WINTER`、`HUB`、`ISLANDHOP`、`TWOLANDS`、`DARKNESS`、`ENDING` 冒险关卡。
+- [x] 已定义各冒险关卡的 taskset、start location、Teleportato story setpiece 和 Ending 的 `MaxHome` 任务。
+- [x] 新冒险世界生成后会把玩家 session 注入到冒险起点附近。
+- [x] 第一章只继承角色身份，并补发角色初始物品。
+- [x] 后续章节继承冒险中的玩家状态。
+- [x] 冒险中会缓存玩家激活、离线、重连时的存档状态。
+- [x] 冒险晚加入玩家会被标记，并在返回主世界时写回主世界 session。
+- [x] 开始冒险前会通过 shard RPC 要求副 shard 玩家迁回 Master，并等待副 shard 玩家清空。
+- [x] 冒险传送门和 Teleportato 过关都要求所有存活玩家靠近。
+- [x] Teleportato 四个零件、基座、零件交易、动画符号和网络同步。
+- [x] Teleportato 已实现 4 格容器，并只把容器内物品带到下一章。
+- [x] Teleportato 容器按玩家分别缓存，避免多人打开时混用物品。
+- [x] Teleportato 未满足多人距离条件时会给操作者提示。
+- [x] 章节标题、淡入淡出和本地前端队列已实现。
+- [x] 麦斯威尔章节开场剧情、镜头控制、玩家睡眠状态、跳过输入和客户端 RPC 已实现。
+- [x] 麦斯威尔 intro prefab、talker 组件、intro spawner 组件和动画资源已接入。
+- [x] 冒险死亡检测，所有玩家死亡或变鬼后会返回主世界。
+- [x] 冒险模式中会移除洞穴入口。
+- [x] 冒险模式中船配方被改成不可实际制作的材料需求。
+- [x] 冒险模式中海洋鱼群生成被禁用。
+- [x] 冒险模式中 SharkBoi 生成被禁用。
+- [x] 鸟类生成点会避开没有平台的海面。
+- [x] 冒险模式中浪管理器更新被禁用，并启用旧版浪视觉处理。
+- [x] 起点静态布局中的 `spawnpoint` 会转换为 `spawnpoint_master`。
+- [x] `Archipelago` 和 `Two Worlds` 世界生成会额外处理虫洞连接。
+- [x] `Two Worlds` 零件岛进入检测和零件岛天气切换已实现。
+- [x] 方尖碑横向墙重建组件已接入 `world` prefab。
+- [x] 探测杖配方、起始探测杖 prefab 和探测杖目标检测音效 patch 已实现。
+- [x] Maxwell light、paired Maxwell light 和火焰 prefab 已实现。
+- [x] 修复中文/日文弹窗文本溢出换行。
+- [x] 调试命令已添加：揭示地图、调试状态、给予 Teleportato 零件、触发青蛙雨。
 
-- [*] 船不可用
-
-- [*] 修复方尖碑生成不全
-- [ ] 修复Ending关卡世界生成循环卡死
-- [ ] 修复人物不会生成在冒险模式生成点静态布局的问题
+## 未完成

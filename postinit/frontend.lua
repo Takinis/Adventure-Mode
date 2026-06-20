@@ -84,8 +84,7 @@ end
 
 local function SetMaxwellIntroCamera(x, y, z)
     local player = ThePlayer
-    if player ~= nil and player:IsValid() and TheCamera ~= nil and
-        type(x) == "number" and type(y) == "number" and type(z) == "number" then
+    if player ~= nil and player:IsValid() and TheCamera ~= nil then
         local px, py, pz = player.Transform:GetWorldPosition()
         TheCamera:SetOffset((Vector3(x, y, z) - Vector3(px, py, pz)) * .5 + Vector3(0, 2, 0))
         TheCamera:SetDistance(15)
