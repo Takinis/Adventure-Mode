@@ -8,6 +8,7 @@ AddAdventureLevel({
 	overrides = {
 		task_set = "RAINY",
 		start_location = "WinterStartEasy",
+		has_ocean = false,
 		wanderingtrader_enabled = "none",
 
 		world_size = "default",

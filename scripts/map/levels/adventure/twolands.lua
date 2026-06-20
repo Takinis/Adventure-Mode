@@ -15,6 +15,7 @@ AddAdventureLevel({
 		islands = "always",
 		roads = "never",
 		start_location = "BargainStart",
+		has_ocean = false,
 		start_node = "Clearing",
 		bearger = "never",
 		dragonfly = "never",

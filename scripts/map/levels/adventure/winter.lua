@@ -10,6 +10,7 @@ AddAdventureLevel({
 		wanderingtrader_enabled = "none",
 		day = "longdusk",
 		start_location = "WinterStartMedium",
+		has_ocean = false,
 		start_node = "Clearing",
 		loop = "never",
 		branching = "least",

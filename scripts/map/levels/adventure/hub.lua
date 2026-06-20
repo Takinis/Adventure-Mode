@@ -8,6 +8,7 @@ AddAdventureLevel({
 	overrides = {
 		task_set = "HUB",
 		start_location = "PreSummerStart",
+		has_ocean = false,
 		wanderingtrader_enabled = "none",
 
 		day = "longdusk",

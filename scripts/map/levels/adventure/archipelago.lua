@@ -12,6 +12,7 @@ AddAdventureLevel({
 		world_size = "medium",
 		task_set = "IslandHop",
 		start_location = "ThisMeansWarStart",
+		has_ocean = false,
 		wanderingtrader_enabled = "none",
 
 		day        = "default",

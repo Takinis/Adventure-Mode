@@ -10,6 +10,7 @@ AddAdventureLevel({
 		task_set = "DARKNESS",
 		wanderingtrader_enabled = "none",
 		start_location = "NightmareStart",
+		has_ocean = false,
 
 		day = "onlynight",
 		season_start = "autumn",
