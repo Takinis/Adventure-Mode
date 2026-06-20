@@ -41,12 +41,17 @@ local function GetCurrentAdventurePreset()
 end
 
 local function GetCurrentAdventureSpeechName()
+    local preset = GetCurrentAdventurePreset()
+    if preset == "ENDING" then
+        return nil
+    end
+
     local chapter = GetCurrentAdventureChapter()
     if chapter == nil then
         return nil
     end
 
-    return GetCurrentAdventurePreset() == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
+    return preset == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
 end
 
 local function CancelReleaseTask()
