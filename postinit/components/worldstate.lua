@@ -1,6 +1,12 @@
 local AddComponentPostInit = AddComponentPostInit
 GLOBAL.setfenv(1, GLOBAL)
 
+local function SourceMatches(source, query)
+    return query == nil
+        or source == query
+        or (type(source) == "string" and source:find(query, 1, true) ~= nil)
+end
+
 AddComponentPostInit("worldstate", function(self, inst)
     local _watchers = ToolUtil.GetUpvalue(self.AddWatcher, "_watchers")
     if _watchers == nil then
@@ -10,12 +16,6 @@ AddComponentPostInit("worldstate", function(self, inst)
 
     local function GetFunctionInfo(fn)
         return debug ~= nil and debug.getinfo ~= nil and debug.getinfo(fn, "Sln") or nil
-    end
-
-    local function SourceMatches(source, query)
-        return query == nil
-            or source == query
-            or (type(source) == "string" and source:find(query, 1, true) ~= nil)
     end
 
     local BuildCallbackEntry
@@ -105,18 +105,25 @@ AddComponentPostInit("worldstate", function(self, inst)
         return out
     end
 
-    function self:FindWorldStateWatchFn(var, listener_inst, target, source_query)
+    function self:GetWorldStateWatchFn(var, listener_inst, target, source_query, test_fn)
         local fallback = nil
+        local can_fallback = target ~= nil or source_query == nil
 
         for _, entry in ipairs(self:GetWorldStateWatchEntries(var, listener_inst)) do
-            if entry.target == target then
+            if (target == nil or entry.target == target)
+                and (test_fn == nil or test_fn(entry.fn, entry)) then
                 if SourceMatches(entry.source, source_query) then
                     return entry.fn
+                elseif can_fallback then
+                    fallback = fallback or entry.fn
                 end
-                fallback = fallback or entry.fn
             end
         end
 
         return fallback
+    end
+
+    function self:FindWorldStateWatchFn(...)
+        return self:GetWorldStateWatchFn(...)
     end
 end)
