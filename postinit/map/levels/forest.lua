@@ -14,10 +14,6 @@ AddLevelPreInitAny(function(level)
         return
     end
 
-    if level.id == "ENDING" then
-        return
-    end
-
     level.required_setpieces = level.required_setpieces or {}
     if table.contains(level.required_setpieces, "AdventurePortalLayout") then
         return
