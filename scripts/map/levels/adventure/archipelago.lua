@@ -33,6 +33,9 @@ AddAdventureLevel({
 		deerclops  = "default",
 		hounds     = "default",
 		stageplays = "never",
+		junkyard = "never",
+		balatro = "never",
+		terrariumchest = "never",
 
 		portalresurection      = "none",
 		ghostenabled           = "always",

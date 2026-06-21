@@ -27,6 +27,9 @@ AddAdventureLevel({
 		dragonfly = "never",
 		goosemoose = "never",
 		stageplays = "never",
+		junkyard = "never",
+		balatro = "never",
+		terrariumchest = "never",
 
 		portalresurection      = "none",
 		ghostenabled           = "always",

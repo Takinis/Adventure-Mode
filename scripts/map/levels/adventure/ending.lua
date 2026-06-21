@@ -17,6 +17,11 @@ AddAdventureLevel({
 		layout_mode = "LinkNodesByKeys",
 		roads = "default",
 
+		stageplays = "never",
+		junkyard = "never",
+		balatro = "never",
+		terrariumchest = "never",
+
 		day = "onlynight",
 		season = "onlysummer",
 		weather = "never",

@@ -27,6 +27,9 @@ AddAdventureLevel({
 		berrybush = "rare",
 
 		stageplays = "never",
+		junkyard = "never",
+		balatro = "never",
+		terrariumchest = "never",
 
 		portalresurection      = "none",
 		ghostenabled           = "always",

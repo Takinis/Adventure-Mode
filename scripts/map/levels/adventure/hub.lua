@@ -23,6 +23,10 @@ AddAdventureLevel({
 		goosemoose = "never",
 		deerclops = "never",
 
+		junkyard = "never",
+		balatro = "never",
+		terrariumchest = "never",
+
 		portalresurection      = "none",
 		ghostenabled           = "always",
 		ghostsanitydrain       = "always",
