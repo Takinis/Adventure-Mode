@@ -107,15 +107,34 @@ AddComponentPostInit("worldstate", function(self, inst)
 
     function self:GetWorldStateWatchFn(var, listener_inst, target, source_query, test_fn)
         local fallback = nil
-        local can_fallback = target ~= nil or source_query == nil
 
         for _, entry in ipairs(self:GetWorldStateWatchEntries(var, listener_inst)) do
-            if (target == nil or entry.target == target)
-                and (test_fn == nil or test_fn(entry.fn, entry)) then
-                if SourceMatches(entry.source, source_query) then
+            if target == nil or entry.target == target then
+                local source_match = source_query ~= nil and SourceMatches(entry.source, source_query)
+                local test_match = test_fn ~= nil and test_fn(entry.fn, entry)
+
+                if source_match or test_match then
                     return entry.fn
-                elseif can_fallback then
+                elseif source_query == nil and test_fn == nil then
                     fallback = fallback or entry.fn
+                end
+            end
+        end
+
+        local watcherfns = listener_inst ~= nil
+            and listener_inst.worldstatewatching ~= nil
+            and listener_inst.worldstatewatching[var]
+            or nil
+        if watcherfns ~= nil and (source_query ~= nil or test_fn ~= nil) then
+            for i, fn in ipairs(watcherfns) do
+                if type(fn) == "function" then
+                    local entry = BuildCallbackEntry(fn, nil, i, listener_inst, var)
+                    local source_match = source_query ~= nil and SourceMatches(entry.source, source_query)
+                    local test_match = test_fn ~= nil and test_fn(entry.fn, entry)
+
+                    if source_match or test_match then
+                        return entry.fn
+                    end
                 end
             end
         end
