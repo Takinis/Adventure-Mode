@@ -1,7 +1,7 @@
 local TILE_SCALE      = 4                    -- 世界单位/格 / world units per tile
 local OBELISK_SPACING = 2                    -- 行内间距（胶囊相切 & 寻路墙相接）/ in-row spacing
 local ROW_GAP         = 8 * TILE_SCALE       -- 两道墙间距 = 圆环直径 / gap between the two walls
-local EDGE_OVERLAP    = OBELISK_SPACING * 6  -- 压入路缘的深度，封死端口 / bleed into the edge to seal the ends
+local EDGE_OVERLAP    = OBELISK_SPACING * 0.6  -- 压入路缘的深度，封死端口 / bleed into the edge to seal the ends
 local EDGE_MARGIN     = 2 * TILE_SCALE       -- 连续不可通行到此即停 / void run that ends the wall
 local MAX_HALF_SPAN   = 12 * TILE_SCALE      -- 单侧最大展开 / cap per side along the wall
 local REMOVE_RADIUS   = math.sqrt((ROW_GAP * 0.5) ^ 2 + MAX_HALF_SPAN ^ 2) + OBELISK_SPACING * 2
