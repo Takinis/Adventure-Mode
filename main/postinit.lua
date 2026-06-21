@@ -28,6 +28,7 @@ modimport("postinit/shardindex")
 modimport("postinit/entityscript")
 modimport("postinit/frontend")
 modimport("postinit/sim")
+modimport("postinit/scenarios/camera_maxwellthrone")
 
 for _, file_name in ipairs(prefab_posts) do
     modimport("postinit/prefabs/" .. file_name)

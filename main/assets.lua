@@ -7,6 +7,9 @@ PrefabFiles = {
     "maxwelllight",
     "paired_maxwelllight",
     "maxwellintro",
+    "maxwellphonograph",
+    "maxwelllock",
+    "maxwellthrone",
 }
 
 Assets = {

@@ -14,7 +14,7 @@ AddLevelPreInitAny(function(level)
         return
     end
 
-    if level.id == "ENDING" or level.location == "ending" then
+    if level.id == "ENDING" then
         return
     end
 
