@@ -23,6 +23,7 @@ AddAdventureLevel({
 		goosemoose = "never",
 		deerclops = "never",
 
+		stageplays = "never",
 		junkyard = "never",
 		balatro = "never",
 		terrariumchest = "never",
