@@ -7,16 +7,14 @@ local prefab_posts = {
     "player",
     "cave_entrance",
     "world",
+    "statuemaxwell",
+    "statueharp",
 }
 
 local components_posts = {
     "colourcube",
     "worldstate",
     "frograin",
-    "sharkboimanager",
-    "wavemanager",
-    "birdspawner",
-    "schoolspawner",
 }
 
 local stategraphs_posts = {
