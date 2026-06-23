@@ -44,6 +44,7 @@ AddTaskSet("WINTER", {
 		"TeleportatoBaseAdventureLayout",
 	},
 	required_prefabs = {
+		"spawnpoint_master",
 		"teleportato_ring",
 		"teleportato_box",
 		"teleportato_crank",
