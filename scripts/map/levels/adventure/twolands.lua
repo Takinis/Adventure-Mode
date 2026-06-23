@@ -30,7 +30,7 @@ AddAdventureLevel({
 		portalresurection      = "none",
 		ghostenabled           = "always",
 		ghostsanitydrain       = "always",
-		basicresource_regrowth = "always",
+		basicresource_regrowth = "none",
 		spawnmode              = "fixed",
 		resettime              = "default",
 	},

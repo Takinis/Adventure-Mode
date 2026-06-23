@@ -17,11 +17,6 @@ AddAdventureLevel({
 		layout_mode = "LinkNodesByKeys",
 		roads = "default",
 
-		stageplays = "never",
-		junkyard = "never",
-		balatro = "never",
-		terrariumchest = "never",
-
 		day = "onlynight",
 		season = "onlysummer",
 		weather = "never",
@@ -32,6 +27,18 @@ AddAdventureLevel({
 		dragonfly = "never",
 		goosemoose = "never",
 		hounds = "never",
+
+		stageplays = "never",
+		junkyard = "never",
+		balatro = "never",
+		terrariumchest = "never",
+
+		portalresurection      = "none",
+		ghostenabled           = "always",
+		ghostsanitydrain       = "always",
+		basicresource_regrowth = "none",
+		spawnmode              = "fixed",
+		resettime              = "default",
 	},
 	-- hideminimap = true,
 	teleportaction = "restart",
