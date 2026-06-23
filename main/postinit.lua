@@ -7,6 +7,7 @@ local prefab_posts = {
     "player",
     "cave_entrance",
     "world",
+    "world_network",
     "statuemaxwell",
     "statueharp",
 }
