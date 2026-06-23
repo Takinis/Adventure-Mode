@@ -14,4 +14,10 @@ AddPrefabPostInit("world", function(inst)
     if inst.components.adventuremanager == nil then
         inst:AddComponent("adventuremanager")
     end
+
+    if ShardGameIndex ~= nil and ShardGameIndex.StartAdventureDeathCheck ~= nil then
+        inst:DoTaskInTime(0, function()
+            ShardGameIndex:StartAdventureDeathCheck(inst)
+        end)
+    end
 end)

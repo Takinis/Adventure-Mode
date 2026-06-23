@@ -27,9 +27,17 @@ local ADVENTURE_INDEX_FILE = "adventure"
 local SECONDARY_SHARD_WAIT_TIMEOUT = 30
 local SECONDARY_SHARD_WAIT_POLL_INTERVAL = 0.5
 local SECONDARY_SHARD_SETTLE_DELAY = 0.25
-local ADVENTURE_DEATH_CHECK_TIMEOUT = 8
 local ADVENTURE_DEATH_CHECK_POLL_INTERVAL = 0.25
 local ADVENTURE_DEATH_CHECK_INITIAL_DELAY = 0.1
+local SECONDARY_ADVENTURE_DEFAULT_LEVEL =
+{
+    worldgen_preset = "DST_CAVE",
+    settings_preset = "DST_CAVE",
+    overrides =
+    {
+        world_size = "small",
+    },
+}
 
 local function noop()
 end
@@ -52,6 +60,21 @@ end
 
 local function get_slot_and_shard(index)
     return index:GetSlot(), index:GetShard()
+end
+
+local function get_index_shard(index)
+    local shard = index ~= nil and index.GetShard ~= nil and index:GetShard() or nil
+    if shard ~= nil and shard ~= "" then
+        return shard
+    end
+    if TheShard ~= nil and TheShard.IsSecondary ~= nil and TheShard:IsSecondary() then
+        return "Caves"
+    end
+    return "Master"
+end
+
+local function is_master_shard_id(shardid)
+    return shardid == nil or shardid == "" or shardid == SHARDID.MASTER or shardid == "Master"
 end
 
 local function get_sidecar_filename(index)
@@ -350,9 +373,10 @@ local function read_world_session_raw(index, session_id, cb)
     local server = index:GetServerData()
     if not TheNet:IsDedicated() and server ~= nil and not server.use_legacy_session_path then
         local slot = index:GetSlot()
-        local file = TheNet:GetWorldSessionFileInClusterSlot(slot, "Master", session_id)
+        local shard = get_index_shard(index)
+        local file = TheNet:GetWorldSessionFileInClusterSlot(slot, shard, session_id)
         if file ~= nil then
-            TheSim:GetPersistentStringInClusterSlot(slot, "Master", file, function(load_success, str)
+            TheSim:GetPersistentStringInClusterSlot(slot, shard, file, function(load_success, str)
                 cb(load_success and str or nil)
             end)
             return
@@ -436,7 +460,7 @@ local give_adventure_first_chapter_start_inv
 local function inject_late_joiners_into_main_world(index, state, cb)
     cb = cb or noop
 
-    if state == nil or state.main == nil or state.main.session_id == nil or not TheNet:GetIsServer() then
+    if state == nil or state.secondary or state.main == nil or state.main.session_id == nil or not TheNet:GetIsServer() then
         cb()
         return
     end
@@ -482,7 +506,7 @@ local function cache_adventure_player_session(inst, mark_late_joiner)
     end
 
     local state = ShardGameIndex:GetAdventureState()
-    if state == nil or not state.active then
+    if state == nil or not state.active or state.secondary then
         return
     end
 
@@ -523,7 +547,7 @@ local function on_adventure_player_deactivated(inst)
 end
 
 local function all_adventure_players_dead()
-    if TheWorld == nil or not TheWorld.ismastersim then
+    if TheWorld == nil or not TheWorld.ismastersim or not is_master_shard() then
         return false
     end
 
@@ -594,6 +618,56 @@ local function send_force_players_to_master_rpc()
             SendModRPCToShard(rpc, shardid)
         end
     end
+end
+
+local function send_secondary_adventure_rpc(name, data)
+    if SendModRPCToShard == nil or GetShardModRPC == nil or ShardList == nil or TheShard == nil then
+        return
+    end
+
+    local rpc = GetShardModRPC("AdventureMode", name)
+    if rpc == nil then
+        return
+    end
+
+    local payload = data ~= nil and ZipAndEncodeString(data) or nil
+    local self_shard = TheShard:GetShardId()
+    for shardid in pairs(ShardList) do
+        if shardid ~= nil and shardid ~= self_shard and shardid ~= SHARDID.MASTER then
+            if payload ~= nil then
+                SendModRPCToShard(rpc, shardid, payload)
+            else
+                SendModRPCToShard(rpc, shardid)
+            end
+        end
+    end
+end
+
+local function send_master_adventure_rpc(name, data)
+    if SendModRPCToShard == nil or GetShardModRPC == nil then
+        return
+    end
+
+    local rpc = GetShardModRPC("AdventureMode", name)
+    if rpc == nil then
+        return
+    end
+
+    local payload = data ~= nil and ZipAndEncodeString(data) or nil
+    if payload ~= nil then
+        SendModRPCToShard(rpc, SHARDID.MASTER, payload)
+    else
+        SendModRPCToShard(rpc, SHARDID.MASTER)
+    end
+end
+
+local function get_secondary_shard_player_count()
+    if TheWorld == nil or TheShard == nil or TheShard.GetSecondaryShardPlayerCounts == nil or not is_master_shard() then
+        return 0
+    end
+
+    local secondary_players = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
+    return secondary_players or 0
 end
 
 local function wait_for_secondary_shard_players_empty(cb, timeout, poll_interval)
@@ -669,6 +743,16 @@ local function restart_current_slot(extra_params)
     StartNextInstance(params)
 end
 
+local function restart_current_slot_after_shard_rpc(extra_params)
+    if TheWorld ~= nil then
+        TheWorld:DoTaskInTime(0, function()
+            restart_current_slot(extra_params)
+        end)
+    else
+        restart_current_slot(extra_params)
+    end
+end
+
 -- Deep copy into a plain table: drops metatables and skips function values so the
 -- result round-trips through DataDumper without needing loadstring on load. Level
 -- presets (GetDataForWorldGenID / GetDefaultLevelData) are Class instances whose
@@ -717,6 +801,25 @@ local function get_level_overrides(level)
     if type(level) == "table" then
         return level.overrides or (type(level.level_options) == "table" and level.level_options.overrides) or nil
     end
+end
+
+local function get_level_for_shard(level, shardid)
+    if is_master_shard_id(shardid) then
+        if type(level) == "table" and level.master ~= nil then
+            return level.master
+        end
+        return level
+    end
+
+    if type(level) == "table" then
+        local shard_levels = level.shards
+        if type(shard_levels) == "table" then
+            return shard_levels[shardid] or shard_levels.Caves or shard_levels.caves or shard_levels.secondary or shard_levels.default
+        end
+        return level.secondary or level.cave or level.caves or level.placeholder or SECONDARY_ADVENTURE_DEFAULT_LEVEL
+    end
+
+    return SECONDARY_ADVENTURE_DEFAULT_LEVEL
 end
 
 local function find_level_data_by_id(levels, id)
@@ -816,7 +919,6 @@ local function schedule_adventure_death_check(inst)
         return
     end
 
-    local started_at = GetTime()
     local function check()
         adventure_death_check_task = nil
 
@@ -829,7 +931,7 @@ local function schedule_adventure_death_check(inst)
             return
         end
 
-        if GetTime() - started_at < ADVENTURE_DEATH_CHECK_TIMEOUT and TheWorld ~= nil then
+        if TheWorld ~= nil then
             adventure_death_check_task = TheWorld:DoTaskInTime(ADVENTURE_DEATH_CHECK_POLL_INTERVAL, check)
         end
     end
@@ -841,7 +943,7 @@ local function schedule_adventure_death_check(inst)
 end
 
 local function on_player_death(inst)
-    if TheWorld == nil or not TheWorld.ismastersim then
+    if TheWorld == nil or not TheWorld.ismastersim or not is_master_shard() then
         return
     end
     if ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive() then
@@ -857,8 +959,59 @@ local function write_adventure_worldgenoverride(index, level, cb)
     write_worldgenoverride_str(index, DataDumper(build_worldgenoverride_data(level), nil, false).."\n", cb)
 end
 
+local function get_adventure_preset_id(preset)
+    if type(preset) == "table" then
+        return preset.id or preset.worldgen_preset or preset.preset or preset.settings_preset
+    end
+    return preset
+end
+
+local function BuildAdventureClientState(state)
+    if state == nil then
+        return nil
+    end
+
+    local total_chapters = type(state.level_sequence) == "table" and #state.level_sequence or nil
+
+    return
+    {
+        active = state.active == true,
+        secondary = state.secondary == true or nil,
+        reason = state.reason,
+        sequence_id = state.sequence_id,
+        chapter = state.chapter,
+        current_preset = get_adventure_preset_id(state.current_preset),
+        current_session_id = state.current_session_id,
+        total_chapters = total_chapters,
+        started_at = state.started_at,
+        updated_at = state.updated_at,
+        finished_at = state.finished_at,
+        return_reason = state.return_reason,
+    }
+end
+
 local function get_adventure_state(index)
+    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.net ~= nil and
+        TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
+        local state = TheWorld.net.components.adventurestate:GetState()
+        if state ~= nil then
+            return state
+        end
+    end
+
+    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.topology ~= nil then
+        local state = TheWorld.topology.adventure_state
+        if state ~= nil then
+            return state
+        end
+    end
+
     return index.adventure_state
+end
+
+local function get_adventure_preset(index)
+    local state = get_adventure_state(index)
+    return get_adventure_preset_id(state ~= nil and state.current_preset or nil)
 end
 
 local function get_adventure_chapter(state)
@@ -866,33 +1019,93 @@ local function get_adventure_chapter(state)
     return type(chapter) == "number" and chapter or nil
 end
 
-local function has_current_adventure_maxwell_intro_played(state)
+local function has_current_adventure_maxwell_intro_played(state, userid)
     local chapter = get_adventure_chapter(state)
     local played_chapters = state ~= nil and state.maxwell_intro_played_chapters or nil
+    local played = type(played_chapters) == "table" and played_chapters[chapter] or nil
     return state ~= nil and
         state.active == true and
         chapter ~= nil and
-        type(played_chapters) == "table" and
-        played_chapters[chapter] == true
+        type(userid) == "string" and
+        userid ~= "" and
+        type(played) == "table" and
+        played[userid] == true
 end
 
 local function set_adventure_state(index, state)
     index.adventure_state = state
+
+    if TheWorld ~= nil and TheWorld.ismastersim and TheWorld.net ~= nil and
+        TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
+        TheWorld.net.components.adventurestate:SetState(state)
+    end
 end
 
-local function mark_current_adventure_maxwell_intro_played(index)
+local function get_maxwell_throne_puppet_record(record)
+    if type(record) ~= "table" then
+        return nil
+    end
+
+    local character = record.character
+    if type(character) ~= "string" or character == "" then
+        return nil
+    end
+
+    local build = record.build
+    if type(build) ~= "string" or build == "" then
+        build = character
+    end
+
+    return
+    {
+        character = character,
+        build = build,
+        userid = type(record.userid) == "string" and record.userid or nil,
+    }
+end
+
+local function get_adventure_maxwell_throne_puppet(index)
+    local state = get_adventure_state(index)
+    return state ~= nil and get_maxwell_throne_puppet_record(state.maxwell_throne_puppet) or nil
+end
+
+local function set_adventure_maxwell_throne_puppet(index, record)
+    local state = get_adventure_state(index)
+    if state == nil then
+        return false
+    end
+
+    local puppet = get_maxwell_throne_puppet_record(record)
+    if puppet == nil then
+        return false
+    end
+
+    state.maxwell_throne_puppet = puppet
+    state.updated_at = os.time()
+    write_sidecar(index, state)
+    return true
+end
+
+local function mark_current_adventure_maxwell_intro_played(index, userid)
     local state = get_adventure_state(index)
     local chapter = get_adventure_chapter(state)
-    if state == nil or not state.active or chapter == nil then
+    if state == nil or not state.active or chapter == nil or type(userid) ~= "string" or userid == "" then
         return false
     end
 
     state.maxwell_intro_played_chapters = state.maxwell_intro_played_chapters or {}
-    if state.maxwell_intro_played_chapters[chapter] then
+    local played = state.maxwell_intro_played_chapters[chapter]
+
+    if type(played) ~= "table" then
+        played = {}
+        state.maxwell_intro_played_chapters[chapter] = played
+    end
+
+    if played[userid] then
         return true
     end
 
-    state.maxwell_intro_played_chapters[chapter] = true
+    played[userid] = true
     state.updated_at = os.time()
     write_sidecar(index, state)
     return true
@@ -906,6 +1119,14 @@ local function patch_shard_index()
 
     function ShardIndex:ForceLocalPlayersToMaster()
         force_local_players_to_master()
+    end
+
+    function ShardIndex:IsMasterShard()
+        return is_master_shard()
+    end
+
+    function ShardIndex:GetSecondaryShardPlayerCount()
+        return get_secondary_shard_player_count()
     end
 
     function ShardIndex:WaitForSecondaryShardPlayersEmpty(cb, timeout, poll_interval)
@@ -926,6 +1147,12 @@ local function patch_shard_index()
 
     function ShardIndex:OnAdventurePlayerDeath(inst)
         on_player_death(inst)
+    end
+
+    function ShardIndex:StartAdventureDeathCheck(inst)
+        if TheWorld ~= nil and TheWorld.ismastersim and is_master_shard() and self:IsAdventureActive() then
+            schedule_adventure_death_check(inst or TheWorld)
+        end
     end
 
     function ShardIndex:RememberStartingInventory(inst)
@@ -990,9 +1217,18 @@ local function patch_shard_index()
 
     local _OnGenerateNewWorld = ShardIndex.OnGenerateNewWorld
     function ShardIndex:OnGenerateNewWorld(savedata, metadataStr, session_identifier, cb)
+        local state = get_adventure_state(self)
+        if state ~= nil and state.active then
+            state.current_session_id = session_identifier
+            state.updated_at = os.time()
+            if savedata ~= nil and savedata.map ~= nil and savedata.map.topology ~= nil then
+                savedata.map.topology.adventure_state = BuildAdventureClientState(state)
+            end
+        end
+
         _OnGenerateNewWorld(self, savedata, metadataStr, session_identifier, function(...)
             local args = { ... }
-            local state = get_adventure_state(self)
+            state = get_adventure_state(self)
             if state ~= nil and state.active then
                 state.current_session_id = session_identifier
                 state.updated_at = os.time()
@@ -1060,12 +1296,24 @@ local function patch_shard_index()
         return get_adventure_state(self)
     end
 
-    function ShardIndex:IsCurrentAdventureMaxwellIntroPlayed()
-        return has_current_adventure_maxwell_intro_played(get_adventure_state(self))
+    function ShardIndex:GetAdventurePreset()
+        return get_adventure_preset(self)
     end
 
-    function ShardIndex:MarkCurrentAdventureMaxwellIntroPlayed()
-        return mark_current_adventure_maxwell_intro_played(self)
+    function ShardIndex:GetAdventureMaxwellThronePuppet()
+        return get_adventure_maxwell_throne_puppet(self)
+    end
+
+    function ShardIndex:SetAdventureMaxwellThronePuppet(record)
+        return set_adventure_maxwell_throne_puppet(self, record)
+    end
+
+    function ShardIndex:IsCurrentAdventureMaxwellIntroPlayed(userid)
+        return has_current_adventure_maxwell_intro_played(get_adventure_state(self), userid)
+    end
+
+    function ShardIndex:MarkCurrentAdventureMaxwellIntroPlayed(userid)
+        return mark_current_adventure_maxwell_intro_played(self, userid)
     end
 
     function ShardIndex:AdventureBegin(opts, cb)
@@ -1092,7 +1340,8 @@ local function patch_shard_index()
             return
         end
 
-        local first_preset = level_sequence[1]
+        local first_preset = get_level_for_shard(level_sequence[1], get_index_shard(self))
+        local previous_state = get_adventure_state(self)
 
         -- Stash the MAIN world's worldgenoverride verbatim before we overwrite it,
         -- so AdventureReturnToMainWorld can put it back exactly as it was.
@@ -1117,6 +1366,7 @@ local function patch_shard_index()
                 first_chapter_start_inv_pending = true,
                 first_chapter_start_inv_given = {},
                 maxwell_intro_played_chapters = {},
+                maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_state ~= nil and previous_state.maxwell_throne_puppet or nil),
 
                 main =
                 {
@@ -1145,6 +1395,75 @@ local function patch_shard_index()
         end)
     end
 
+    function ShardIndex:AdventureBeginSecondary(opts, cb)
+        cb = cb or noop
+        opts = opts or {}
+
+        if self:IsAdventureActive() then
+            print("[Adventure Mode] Secondary adventure already active.")
+            cb(false)
+            return
+        end
+
+        local home_session = self:GetSession()
+        if home_session == nil or home_session == "" then
+            print("[Adventure Mode] Cannot begin secondary adventure without a home shard session.")
+            cb(false)
+            return
+        end
+
+        local level_sequence = opts.level_sequence
+        if type(level_sequence) ~= "table" or #level_sequence == 0 then
+            print("[Adventure Mode] Empty secondary level_sequence.")
+            cb(false)
+            return
+        end
+
+        read_worldgenoverride_raw(self, function(home_wgo)
+            local state =
+            {
+                active = true,
+                secondary = true,
+                reason = "begin",
+                sequence_id = opts.sequence_id or "default",
+                started_at = os.time(),
+                updated_at = os.time(),
+
+                level_sequence = deepcopy_safe(level_sequence),
+                chapter = 1,
+                current_preset = get_level_for_shard(level_sequence[1], get_index_shard(self)),
+                current_session_id = nil,
+                player_sessions = nil,
+                adventure_player_sessions = {},
+                first_chapter_start_inv_pending = false,
+                first_chapter_start_inv_given = {},
+                maxwell_intro_played_chapters = {},
+
+                main =
+                {
+                    session_id = home_session,
+                    worldgenoverride = home_wgo,
+                    world = deepcopy_safe(self.world),
+                    server = deepcopy_safe(self.server),
+                    enabled_mods = deepcopy_safe(self.enabled_mods),
+                },
+            }
+
+            set_adventure_state(self, state)
+            self.world = { options = resolve_level_options(state.current_preset) }
+            self.session_id = nil
+            self:MarkDirty()
+
+            write_adventure_worldgenoverride(self, state.current_preset, function()
+                self:Save(function()
+                    write_sidecar(self, state, function()
+                        cb(true)
+                    end)
+                end)
+            end)
+        end)
+    end
+
     -- Advance to the next chapter in the sequence, generating a fresh world. If the
     -- current chapter is the last one, return to the main world instead.
     function ShardIndex:AdventureAdvance(opts, cb)
@@ -1162,7 +1481,17 @@ local function patch_shard_index()
             return
         end
 
-        local next_chapter = (state.chapter or 1) + 1
+        local current_chapter = state.chapter or 1
+        local next_chapter = opts.chapter or (current_chapter + 1)
+        if type(next_chapter) ~= "number" then
+            next_chapter = current_chapter + 1
+        end
+        next_chapter = math.floor(next_chapter)
+        if next_chapter <= current_chapter then
+            print("[Adventure Mode] Cannot advance to chapter "..tostring(next_chapter).." from chapter "..tostring(current_chapter)..".")
+            cb(false)
+            return
+        end
         if next_chapter > #state.level_sequence then
             return self:AdventureReturnToMainWorld("complete", cb)
         end
@@ -1174,7 +1503,7 @@ local function patch_shard_index()
             TheNet:DeleteSession(leaving)
         end
 
-        local next_preset = state.level_sequence[next_chapter]
+        local next_preset = get_level_for_shard(state.level_sequence[next_chapter], get_index_shard(self))
         state.chapter = next_chapter
         state.current_preset = next_preset
         state.current_session_id = nil
@@ -1182,6 +1511,53 @@ local function patch_shard_index()
         state.player_sessions = merge_session_lists(player_sessions, state.adventure_player_sessions)
         state.adventure_player_sessions = deepcopy_safe(state.player_sessions) or {}
         state.first_chapter_start_inv_pending = false
+        state.updated_at = os.time()
+
+        self.world = { options = resolve_level_options(next_preset) }
+        self.session_id = nil
+        self:MarkDirty()
+
+        write_adventure_worldgenoverride(self, next_preset, function()
+            self:Save(function()
+                write_sidecar(self, state, function()
+                    set_adventure_state(self, state)
+                    cb(true, next_chapter)
+                end)
+            end)
+        end)
+    end
+
+    function ShardIndex:AdventureAdvanceSecondary(opts, cb)
+        if type(opts) == "function" and cb == nil then
+            cb = opts
+            opts = nil
+        end
+        cb = cb or noop
+        opts = opts or {}
+
+        local state = get_adventure_state(self)
+        if state == nil or not state.active or state.main == nil then
+            print("[Adventure Mode] No active secondary adventure to advance.")
+            cb(false)
+            return
+        end
+
+        local next_chapter = opts.chapter or ((state.chapter or 1) + 1)
+        if next_chapter > #state.level_sequence then
+            return self:AdventureReturnToMainWorld("complete", cb)
+        end
+
+        local leaving = state.current_session_id
+        if leaving ~= nil and leaving ~= "" and leaving ~= state.main.session_id then
+            TheNet:DeleteSession(leaving)
+        end
+
+        local next_preset = get_level_for_shard(state.level_sequence[next_chapter], get_index_shard(self))
+        state.chapter = next_chapter
+        state.current_preset = next_preset
+        state.current_session_id = nil
+        state.player_sessions = nil
+        state.adventure_player_sessions = nil
         state.updated_at = os.time()
 
         self.world = { options = resolve_level_options(next_preset) }
@@ -1256,11 +1632,14 @@ function StartShardAdventure(opts)
         print("[Adventure Mode] StartShardAdventure must be called on the master shard.")
         return false
     end
+    opts = opts or {}
+    opts.level_sequence = opts.level_sequence or ShardGameIndex:BuildAdventurePlaylist()
 
     local function begin_after_save()
         ShardGameIndex:AdventureBegin(opts, function(success)
             if success then
-                restart_current_slot({ adventure_transition = "begin" })
+                send_secondary_adventure_rpc("BeginSecondaryAdventure", opts)
+                restart_current_slot_after_shard_rpc({ adventure_transition = "begin" })
             end
         end)
     end
@@ -1281,13 +1660,47 @@ function AdvanceShardAdventure(opts)
     if ShardGameIndex == nil or not ShardGameIndex:IsAdventureActive() then
         return false
     end
+    if TheShard ~= nil and not is_master_shard() then
+        print("[Adventure Mode] AdvanceShardAdventure must be called on the master shard.")
+        return false
+    end
 
-    save_players()
-    ShardGameIndex:AdventureAdvance(opts, function(success)
-        if success then
-            restart_current_slot({ adventure_transition = "advance" })
+    opts = opts or {}
+
+    if TheWorld ~= nil and TheWorld.ismastersim then
+        if get_secondary_shard_player_count() > 0 then
+            print("[Adventure Mode] Cannot advance while players are on secondary shards.")
+            return false
         end
-    end)
+
+        ShardGameIndex:WaitForSecondaryShardPlayersEmpty(function()
+            save_players()
+            ShardGameIndex:AdventureAdvance(opts, function(success, next_chapter)
+                if success then
+                    if next_chapter ~= nil then
+                        send_secondary_adventure_rpc("AdvanceSecondaryAdventure", { chapter = next_chapter })
+                        restart_current_slot_after_shard_rpc({ adventure_transition = "advance" })
+                    else
+                        send_secondary_adventure_rpc("ReturnSecondaryAdventure", { reason = "complete" })
+                        restart_current_slot_after_shard_rpc({ adventure_transition = "complete" })
+                    end
+                end
+            end)
+        end, opts.secondary_shard_wait_timeout or nil, opts.secondary_shard_wait_poll_interval or nil)
+    else
+        save_players()
+        ShardGameIndex:AdventureAdvance(opts, function(success, next_chapter)
+            if success then
+                if next_chapter ~= nil then
+                    send_secondary_adventure_rpc("AdvanceSecondaryAdventure", { chapter = next_chapter })
+                    restart_current_slot_after_shard_rpc({ adventure_transition = "advance" })
+                else
+                    send_secondary_adventure_rpc("ReturnSecondaryAdventure", { reason = "complete" })
+                    restart_current_slot_after_shard_rpc({ adventure_transition = "complete" })
+                end
+            end
+        end)
+    end
     return true
 end
 
@@ -1299,12 +1712,26 @@ function ReturnFromShardAdventure(reason)
     if ShardGameIndex == nil or not ShardGameIndex:IsAdventureActive() then
         return false
     end
+    if TheShard ~= nil and not is_master_shard() then
+        send_master_adventure_rpc("ReturnFromAdventure", { reason = reason or "return" })
+        return true
+    end
 
-    save_players()
-    ShardGameIndex:AdventureReturnToMainWorld(reason or "return", function(success)
-        if success then
-            restart_current_slot({ adventure_transition = reason or "return" })
-        end
-    end)
+    local function return_after_save()
+        save_players()
+        ShardGameIndex:AdventureReturnToMainWorld(reason or "return", function(success)
+            if success then
+                send_secondary_adventure_rpc("ReturnSecondaryAdventure", { reason = reason or "return" })
+                restart_current_slot_after_shard_rpc({ adventure_transition = reason or "return" })
+            end
+        end)
+    end
+
+    if TheWorld ~= nil and TheWorld.ismastersim then
+        send_force_players_to_master_rpc()
+        ShardGameIndex:WaitForSecondaryShardPlayersEmpty(return_after_save)
+    else
+        return_after_save()
+    end
     return true
 end

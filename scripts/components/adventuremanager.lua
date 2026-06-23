@@ -8,23 +8,12 @@ return Class(function(self, inst)
     local enter_parts_island = false
     local watched_players = {}
 
-    local function GetAdventurePreset()
-        local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
-        local preset = state ~= nil and state.current_preset or nil
-
-        if type(preset) == "table" then
-            preset = preset.id or preset.worldgen_preset or preset.preset
-        end
-
-        return preset
-    end
-
     local function IsAdventureActive()
         return ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive()
     end
 
     local function IsTwoLands()
-        return IsAdventureActive() and GetAdventurePreset() == TWO_LANDS_PRESET
+        return IsAdventureActive() and ShardGameIndex:GetAdventurePreset() == TWO_LANDS_PRESET
     end
 
     local function IsPartsIslandArea(area)

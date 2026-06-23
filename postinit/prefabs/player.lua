@@ -19,16 +19,14 @@ local ADVENTURE_TITLE_BY_PRESET =
 
 local function GetAdventureTitleData()
     local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
-    local preset = state ~= nil and state.current_preset or nil
-    if type(preset) == "table" then
-        preset = preset.id or preset.worldgen_preset or preset.preset
-    end
+    local preset = ShardGameIndex ~= nil and ShardGameIndex.GetAdventurePreset ~= nil and
+        ShardGameIndex:GetAdventurePreset() or nil
 
     local level = preset ~= nil and ADVENTURE_TITLE_BY_PRESET[preset] or nil
     level = level or tostring(preset or "Adventure")
 
     local chapter = state ~= nil and state.chapter or 1
-    local total = state ~= nil and state.level_sequence ~= nil and #state.level_sequence or 1
+    local total = state ~= nil and (state.total_chapters or (state.level_sequence ~= nil and #state.level_sequence)) or 1
 
     return level, string.format("Chapter %d of %d", chapter, total)
 end
@@ -50,23 +48,28 @@ local function ShowAdventureTitle(inst, retries)
         return
     end
 
+    local maxwell_intro = inst.components.maxwellintrospawner
+    local play_maxwell_intro = maxwell_intro ~= nil and maxwell_intro:ShouldPlayCurrentChapter() or false
+
     if sent_adventure_title_by_userid[inst.userid] then
         return
     end
 
-    local maxwell_intro = inst.components.maxwellintrospawner
-    local play_maxwell_intro = maxwell_intro ~= nil and maxwell_intro:TryReserve() or false
     local level, chapter = GetAdventureTitleData()
     SendModRPCToClient(GetClientModRPC("AdventureMode", "ShowTitle"), inst.userid, level, chapter, play_maxwell_intro)
     sent_adventure_title_by_userid[inst.userid] = true
 end
 
 local function OnLocalPlayerActivated(inst)
-    TheFrontEnd:OnLocalPlayerActivated(inst)
+    if TheFrontEnd ~= nil and TheFrontEnd.OnLocalPlayerActivated ~= nil then
+        TheFrontEnd:OnLocalPlayerActivated(inst)
+    end
 end
 
 local function OnLocalPlayerDeactivated(inst)
-    TheFrontEnd:OnLocalPlayerDeactivated(inst)
+    if TheFrontEnd ~= nil and TheFrontEnd.OnLocalPlayerDeactivated ~= nil then
+        TheFrontEnd:OnLocalPlayerDeactivated(inst)
+    end
 end
 
 local function RememberStartingInventory(inst)
@@ -78,8 +81,11 @@ local function OnAdventurePlayerActivated(inst)
 end
 
 local function OnAdventurePlayerDeactivated(inst)
-    if inst.components.maxwellintrospawner ~= nil then
-        inst.components.maxwellintrospawner:ReleaseReservation()
+    if inst ~= nil and inst.userid ~= nil and inst.userid ~= "" then
+        local maxwell_intro = inst.components.maxwellintrospawner
+        if maxwell_intro ~= nil and maxwell_intro:ShouldPlayCurrentChapter() then
+            sent_adventure_title_by_userid[inst.userid] = nil
+        end
     end
     ShardGameIndex:OnAdventurePlayerDeactivated(inst)
 end
@@ -105,6 +111,8 @@ AddPlayerPostInit(function(inst)
         inst:DoTaskInTime(0, OnAdventurePlayerActivated)
     end
 
-    inst:ListenForEvent("playeractivated", OnLocalPlayerActivated)
-    inst:ListenForEvent("playerdeactivated", OnLocalPlayerDeactivated)
+    if TheNet == nil or not TheNet:IsDedicated() then
+        inst:ListenForEvent("playeractivated", OnLocalPlayerActivated)
+        inst:ListenForEvent("playerdeactivated", OnLocalPlayerDeactivated)
+    end
 end)

@@ -2,10 +2,12 @@ local assets = {
 	Asset("ANIM", "anim/teleportato.zip"),
 	Asset("ANIM", "anim/teleportato_build.zip"),
 	Asset("ANIM", "anim/teleportato_adventure_build.zip"),
+	Asset("ANIM", "anim/teleportato_adventure_parts_build.zip"),
 }
 
 local prefabs = {
 	"ash",
+	"teleportato_player_container",
 }
 
 local Parts = {
@@ -34,29 +36,6 @@ local TELEPORTATO_SLOT_ORDER = { 1, 2, 3, 4 }
 
 local CheckNextLevelSure
 
-local container_config = {
-	widget = {
-		slotpos = {
-			Vector3(0, 64 + 32 + 8 + 4, 0),
-			Vector3(0, 32 + 4, 0),
-			Vector3(0, -(32 + 4), 0),
-			Vector3(0, -(64 + 32 + 8 + 4), 0),
-		},
-		animbank = "ui_cookpot_1x4",
-		animbuild = "ui_cookpot_1x4",
-		pos = Vector3(0, 0, 0),
-		side_align_tip = 100,
-		buttoninfo = {
-			text = STRINGS.ACTIONS.ACTIVATE.GENERIC,
-			position = Vector3(0, -165, 0),
-		},
-	},
-	type = "cooker",
-	itemtestfn = function(container, item, slot)
-		return not item:HasTag("nonpotatable") and not item:HasTag("bundle")
-	end,
-}
-
 local function CountParts(inst)
 	local parts_count = 0
 	for _, found in pairs(inst.Parts) do
@@ -67,100 +46,166 @@ local function CountParts(inst)
 	return parts_count
 end
 
-local function GetPlayerStore(inst, userid)
-	if userid == nil or userid == "" then
+local function IsValidUserId(userid)
+	return userid ~= nil and userid ~= ""
+end
+
+local function BuildSlotRecordsFromContainer(container)
+	if container == nil or not container:IsValid() or container.components.container == nil then
 		return nil
 	end
 
-	inst._playerstores = inst._playerstores or {}
-	inst._playerstores[userid] = inst._playerstores[userid] or {}
-	return inst._playerstores[userid]
-end
-
-local function SaveCurrentContainerForUser(inst, userid)
-	local store = GetPlayerStore(inst, userid)
-	if store == nil or inst.components.container == nil then
-		return
-	end
-
+	local out = {}
+	local has_any = false
 	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
-		local item = inst.components.container:GetItemInSlot(slot)
-		store[slot] = item ~= nil and item:GetSaveRecord() or false
-	end
-end
-
-local function ClearContainerContents(inst)
-	if inst.components.container == nil then
-		return
-	end
-
-	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
-		local item = inst.components.container:RemoveItemBySlot(slot)
+		local item = container.components.container:GetItemInSlot(slot)
 		if item ~= nil then
-			item:Remove()
+			out[slot] = item:GetSaveRecord()
+			has_any = true
 		end
 	end
+
+	return has_any and out or nil
 end
 
-local function LoadContainerForUser(inst, userid)
-	if inst.components.container == nil then
+local function CopySlotRecords(records)
+	if type(records) ~= "table" then
+		return nil
+	end
+
+	local out = {}
+	local has_any = false
+	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
+		if type(records[slot]) == "table" then
+			out[slot] = deepcopy(records[slot])
+			has_any = true
+		end
+	end
+
+	return has_any and out or nil
+end
+
+local function SavePlayerContainerToStore(inst, userid, container)
+	if not IsValidUserId(userid) then
 		return
 	end
 
-	ClearContainerContents(inst)
+	inst._playerstores = inst._playerstores or {}
+	inst._playerstores[userid] = BuildSlotRecordsFromContainer(container)
+end
 
-	local store = GetPlayerStore(inst, userid)
-	if store == nil then
+local function LoadSlotRecordsIntoContainer(container, records)
+	if container == nil or container.components.container == nil or type(records) ~= "table" then
 		return
 	end
 
 	for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
-		local record = store[slot]
+		local record = records[slot]
 		if type(record) == "table" then
 			local item = SpawnSaveRecord(record)
 			if item ~= nil then
-				inst.components.container:GiveItem(item, slot)
+				container.components.container:GiveItem(item, slot)
 			end
 		end
 	end
 end
 
-local function CloseTeleportatoContainer(inst)
-	if inst.components.container ~= nil then
-		inst.components.container:Close()
-	end
-	inst._container_userid = nil
+local function TrackPlayerContainer(inst, userid, container)
+	inst._playercontainers = inst._playercontainers or {}
+	inst._playercontainers[userid] = container
+	inst:ListenForEvent("onremove", function()
+		if inst._playercontainers ~= nil and inst._playercontainers[userid] == container then
+			inst._playercontainers[userid] = nil
+		end
+	end, container)
 end
 
-local function SetContainerUser(inst, userid)
-	if inst._container_userid == userid then
-		return
+local function GetPlayerContainer(inst, userid, create)
+	if not IsValidUserId(userid) then
+		return nil
 	end
 
-	if inst._container_userid ~= nil then
-		SaveCurrentContainerForUser(inst, inst._container_userid)
+	inst._playercontainers = inst._playercontainers or {}
+	local container = inst._playercontainers[userid]
+	if container ~= nil and container:IsValid() then
+		return container
 	end
 
-	inst._container_userid = userid
-	LoadContainerForUser(inst, userid)
+	if not create then
+		return nil
+	end
+
+	container = SpawnPrefab("teleportato_player_container")
+	if container == nil then
+		return nil
+	end
+
+	local x, y, z = inst.Transform:GetWorldPosition()
+	container.Transform:SetPosition(x, y, z)
+	container._userid = userid
+	container._base = inst
+	container._teleportato_base:set(inst)
+	LoadSlotRecordsIntoContainer(container, inst._playerstores ~= nil and inst._playerstores[userid] or nil)
+	TrackPlayerContainer(inst, userid, container)
+
+	return container
+end
+
+local function GetSlotRecordsForUser(inst, userid)
+	local container = GetPlayerContainer(inst, userid, false)
+	if container ~= nil then
+		local records = BuildSlotRecordsFromContainer(container)
+		inst._playerstores = inst._playerstores or {}
+		inst._playerstores[userid] = records
+		return records
+	end
+
+	return CopySlotRecords(inst._playerstores ~= nil and inst._playerstores[userid] or nil)
+end
+
+local function ClosePlayerContainers(inst)
+	for userid, container in pairs(inst._playercontainers or {}) do
+		if container ~= nil and container:IsValid() and container.components.container ~= nil then
+			SavePlayerContainerToStore(inst, userid, container)
+			container.components.container:Close()
+		end
+	end
+end
+
+local function RemovePlayerContainers(inst)
+	local containers = {}
+	for userid, container in pairs(inst._playercontainers or {}) do
+		table.insert(containers, { userid = userid, container = container })
+	end
+
+	for _, data in ipairs(containers) do
+		local container = data.container
+		if container ~= nil and container:IsValid() then
+			SavePlayerContainerToStore(inst, data.userid, container)
+			container:Remove()
+		end
+	end
+	inst._playercontainers = {}
 end
 
 local function BuildPlayerStoreSaveData(inst)
 	local data = {}
-	for userid, store in pairs(inst._playerstores or {}) do
-		local out = {}
-		local has_any = false
-		for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
-			local record = store[slot]
-			if type(record) == "table" then
-				out[slot] = deepcopy(record)
-				has_any = true
-			end
-		end
-		if has_any then
-			data[userid] = out
+	local userids = {}
+
+	for userid in pairs(inst._playerstores or {}) do
+		userids[userid] = true
+	end
+	for userid in pairs(inst._playercontainers or {}) do
+		userids[userid] = true
+	end
+
+	for userid in pairs(userids) do
+		local records = GetSlotRecordsForUser(inst, userid)
+		if records ~= nil then
+			data[userid] = records
 		end
 	end
+
 	return next(data) ~= nil and data or nil
 end
 
@@ -171,13 +216,8 @@ local function LoadPlayerStoreSaveData(inst, data)
 	end
 
 	for userid, store in pairs(data) do
-		if type(userid) == "string" and type(store) == "table" then
-			inst._playerstores[userid] = {}
-			for _, slot in ipairs(TELEPORTATO_SLOT_ORDER) do
-				if type(store[slot]) == "table" then
-					inst._playerstores[userid][slot] = deepcopy(store[slot])
-				end
-			end
+		if type(userid) == "string" then
+			inst._playerstores[userid] = CopySlotRecords(store)
 		end
 	end
 end
@@ -205,6 +245,26 @@ local function FilterInventoryDataForTeleportato(record, slot_records)
 	return out
 end
 
+local function FilterSessionForTeleportato(inst, session)
+	if session == nil or not IsValidUserId(session.userid) then
+		return session
+	end
+
+	local store = GetSlotRecordsForUser(inst, session.userid)
+	if store == nil then
+		return session
+	end
+
+	local success, record = RunInSandboxSafe(session.data or "")
+	if not success or type(record) ~= "table" then
+		return session
+	end
+
+	local out = deepcopy(session)
+	out.data = DataDumper(FilterInventoryDataForTeleportato(record, store), nil, BRANCH ~= "dev")
+	return out
+end
+
 local function BuildAdventurePlayerSessions(inst)
 	local sessions = {}
 	local seen = {}
@@ -213,17 +273,17 @@ local function BuildAdventurePlayerSessions(inst)
 	end
 
 	for _, player in ipairs(AllPlayers) do
-		if player.userid ~= nil and player.userid ~= "" and player.prefab ~= nil then
+		if IsValidUserId(player.userid) and player.prefab ~= nil then
 			local record = player:GetSaveRecord()
-			local store = GetPlayerStore(inst, player.userid)
+			local store = GetSlotRecordsForUser(inst, player.userid)
 			record = FilterInventoryDataForTeleportato(record, store)
 			table.insert(sessions, {
 				userid = player.userid,
 				prefab = player.prefab,
 				data = DataDumper(record, nil, BRANCH ~= "dev"),
-					metadata = DataDumper({ character = player.prefab }, nil, BRANCH ~= "dev"),
-					mode = "full",
-				})
+				metadata = DataDumper({ character = player.prefab }, nil, BRANCH ~= "dev"),
+				mode = "full",
+			})
 			seen[player.userid] = true
 		end
 	end
@@ -233,7 +293,7 @@ local function BuildAdventurePlayerSessions(inst)
 		if state ~= nil and state.adventure_player_sessions ~= nil then
 			for _, session in ipairs(state.adventure_player_sessions) do
 				if session.userid ~= nil and session.userid ~= "" and not seen[session.userid] then
-					table.insert(sessions, session)
+					table.insert(sessions, FilterSessionForTeleportato(inst, session))
 				end
 			end
 		end
@@ -279,6 +339,23 @@ local function IsAdventureActive()
 	return ShardGameIndex ~= nil and ShardGameIndex.IsAdventureActive ~= nil and ShardGameIndex:IsAdventureActive()
 end
 
+local function IsMasterAdventureShard()
+	return ShardGameIndex ~= nil and
+		(ShardGameIndex.IsMasterShard == nil or ShardGameIndex:IsMasterShard())
+end
+
+local function SecondaryShardHasPlayers()
+	return ShardGameIndex ~= nil and
+		ShardGameIndex.GetSecondaryShardPlayerCount ~= nil and
+		ShardGameIndex:GetSecondaryShardPlayerCount() > 0
+end
+
+local function DenyTeleportato(doer, message)
+	if doer ~= nil and doer.userid ~= nil then
+		SendModRPCToClient(GetClientModRPC("AdventureMode", "TeleportatoDenied"), doer.userid, message)
+	end
+end
+
 local function AreAllPlayersNearby(inst)
 	if AllPlayers == nil then
 		return false
@@ -300,21 +377,30 @@ local function TransitionToNextLevel(inst, doer)
 		return false
 	end
 
+	if CountParts(inst) < PART_COUNT then
+		return false
+	end
+
+	if not IsMasterAdventureShard() then
+		DenyTeleportato(doer, "Only the Master world can unlock the next chapter.")
+		return false
+	end
+
 	if inst._activating then
 		return false
 	end
 
-	if not AreAllPlayersNearby(inst) then
-		if doer ~= nil and doer.userid ~= nil then
-			SendModRPCToClient(GetClientModRPC("AdventureMode", "TeleportatoDenied"), doer.userid)
-		end
+	if SecondaryShardHasPlayers() then
+		DenyTeleportato(doer, "Everyone must return from the Caves first.")
 		return false
 	end
 
-	if doer ~= nil and doer.userid ~= nil then
-		SaveCurrentContainerForUser(inst, doer.userid)
+	if not AreAllPlayersNearby(inst) then
+		DenyTeleportato(doer)
+		return false
 	end
-	CloseTeleportatoContainer(inst)
+
+	ClosePlayerContainers(inst)
 
 	local player_sessions = BuildAdventurePlayerSessions(inst)
 
@@ -355,7 +441,7 @@ CheckNextLevelSure = function(inst, doer)
 	SendModRPCToClient(
 		GetClientModRPC("AdventureMode", "Adventure???"),
 		doer.userid,
-		inst,
+		inst.GUID,
 		ZipAndEncodeString({
 			title = STRINGS.UI.TELEPORTTITLE,
 			body = GetBodyText(),
@@ -365,16 +451,30 @@ CheckNextLevelSure = function(inst, doer)
 	)
 end
 
-container_config.widget.buttoninfo.fn = function(inst, doer)
-	CheckNextLevelSure(inst, doer)
+local function EnableTeleportatoActivation(inst)
+	if inst.components.activatable ~= nil and not inst._activating then
+		inst.components.activatable.inactive = true
+	end
 end
 
-container_config.widget.buttoninfo.validfn = function(inst)
-	return inst ~= nil and inst.replica.container ~= nil and inst.replica.container:IsOpenedBy(ThePlayer)
+local function OpenPlayerContainer(inst, doer)
+	if doer == nil or not IsValidUserId(doer.userid) then
+		EnableTeleportatoActivation(inst)
+		return
+	end
+
+	local container = GetPlayerContainer(inst, doer.userid, true)
+	if container ~= nil and container.components.container ~= nil then
+		container.components.container:Open(doer)
+	end
+	EnableTeleportatoActivation(inst)
 end
 
 local function OnActivate(inst, doer)
 	if CountParts(inst) < PART_COUNT then
+		if inst.components.activatable ~= nil then
+			inst.components.activatable.inactive = false
+		end
 		return
 	end
 
@@ -392,17 +492,11 @@ local function OnActivate(inst, doer)
 
 		inst:DoTaskInTime(3.0, function()
 			if inst:IsValid() and doer ~= nil and doer:IsValid() then
-				if inst.components.container ~= nil then
-					inst.components.container.canbeopened = true
-					inst.components.container:Open(doer)
-				end
+				OpenPlayerContainer(inst, doer)
 			end
 		end)
 	else
-		if inst.components.container ~= nil then
-			inst.components.container.canbeopened = true
-			inst.components.container:Open(doer)
-		end
+		OpenPlayerContainer(inst, doer)
 	end
 end
 
@@ -481,6 +575,7 @@ end
 local function ItemGet(inst, giver, item)
 	if inst.Parts[item.prefab] ~= nil then
 		inst.Parts[item.prefab] = true
+		inst.SoundEmitter:KillSound("teleportato_addpart")
 		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_addpart", "teleportato_addpart")
 		TestForPowerUp(inst)
 	end
@@ -497,7 +592,7 @@ local function OnLoad(inst, data)
 	inst._powered = data ~= nil and data.powered or false
 	inst._activating = false
 	inst._waiting_for_powerup = false
-	inst._container_userid = nil
+	inst._playercontainers = {}
 	LoadPlayerStoreSaveData(inst, data ~= nil and data.playerstores or nil)
 
 	RefreshPartSymbols(inst)
@@ -526,41 +621,7 @@ local function OnLoad(inst, data)
 	end
 end
 
-local function OnPlayerFar(inst)
-end
-
-local function OnContainerOpen(inst, data)
-	local doer = data ~= nil and data.doer or nil
-	if doer == nil or doer.userid == nil or doer.userid == "" then
-		return
-	end
-
-	if inst.components.container ~= nil and inst.components.container:IsOpenedByOthers(doer) then
-		inst.components.container:Close(doer)
-		if doer.components.talker ~= nil then
-			doer.components.talker:Say("Another survivor is already using the Teleportato.")
-		end
-		return
-	end
-
-	SetContainerUser(inst, doer.userid)
-end
-
-local function OnContainerClose(inst, doer)
-	if doer ~= nil and doer.userid ~= nil and doer.userid ~= "" then
-		SaveCurrentContainerForUser(inst, doer.userid)
-	end
-
-	if inst.components.container ~= nil and not inst.components.container:IsOpen() then
-		inst._container_userid = nil
-	end
-end
-
 local function OnSave(inst, data)
-	if inst._container_userid ~= nil then
-		SaveCurrentContainerForUser(inst, inst._container_userid)
-	end
-
 	data.Parts = {}
 	for part, found in pairs(inst.Parts) do
 		data.Parts[part] = found
@@ -600,7 +661,7 @@ local function fn()
 
 	inst.entity:SetPristine()
 
-	inst.Parts = Parts
+	inst.Parts = deepcopy(Parts)
 
 	if not TheWorld.ismastersim then
 		inst:ListenForEvent("teleportatopartsdirty", OnPartsDirty)
@@ -614,6 +675,8 @@ local function fn()
 	inst._activating = false
 	inst._waiting_for_powerup = false
 	inst.activatedonce = false
+	inst._playercontainers = {}
+	inst._playerstores = {}
 
 	inst:AddComponent("inspectable")
 	inst.components.inspectable.getstatus = GetStatus
@@ -624,25 +687,15 @@ local function fn()
 	inst.components.activatable.inactive = false
 	inst.components.activatable.quickaction = true
 
-	inst:AddComponent("container")
-	inst.components.container:WidgetSetup(nil, container_config)
-	inst.components.container.canbeopened = false
-	inst.components.container.skipclosesnd = true
-	inst.components.container.skipopensnd = true
-	inst.components.container.onopenfn = OnContainerOpen
-	inst.components.container.onclosefn = OnContainerClose
-
-	inst:AddComponent("playerprox")
-	inst.components.playerprox:SetDist(3, 5)
-	inst.components.playerprox:SetOnPlayerFar(OnPlayerFar)
-
 	inst:AddComponent("trader")
 	inst.components.trader:SetAcceptTest(ItemTradeTest)
 	inst.components.trader.onaccept = ItemGet
 
 	inst.Adventure = TransitionToNextLevel
+	inst.CheckNextLevelSure = CheckNextLevelSure
 	inst.OnSave = OnSave
 	inst.OnLoad = OnLoad
+	inst.OnRemoveEntity = RemovePlayerContainers
 
 	RefreshPartSymbols(inst)
 	SyncPartNetvar(inst)

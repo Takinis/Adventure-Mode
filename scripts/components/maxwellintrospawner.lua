@@ -1,5 +1,3 @@
-local RELEASE_DELAY = 20
-
 local MAXWELL_SPEECH_BY_CHAPTER =
 {
     "ADVENTURE_1",
@@ -10,17 +8,17 @@ local MAXWELL_SPEECH_BY_CHAPTER =
     "ADVENTURE_6",
 }
 
-local played_chapter = nil
-local reserved_player = nil
-local release_task = nil
-
 local MaxwellIntroSpawner = Class(function(self, inst)
     self.inst = inst
-    self.speech = nil
 end)
 
 local function GetCurrentAdventureState()
     return ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
+end
+
+local function GetPlayerUserid(inst)
+    local userid = inst ~= nil and inst.userid or nil
+    return type(userid) == "string" and userid ~= "" and userid or nil
 end
 
 local function GetCurrentAdventureChapter()
@@ -30,14 +28,8 @@ local function GetCurrentAdventureChapter()
 end
 
 local function GetCurrentAdventurePreset()
-    local state = GetCurrentAdventureState()
-    local preset = state ~= nil and state.current_preset or nil
-
-    if type(preset) == "table" then
-        preset = preset.id or preset.worldgen_preset or preset.preset
-    end
-
-    return preset
+    return ShardGameIndex ~= nil and ShardGameIndex.GetAdventurePreset ~= nil and
+        ShardGameIndex:GetAdventurePreset() or nil
 end
 
 local function GetCurrentAdventureSpeechName()
@@ -52,29 +44,6 @@ local function GetCurrentAdventureSpeechName()
     end
 
     return preset == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
-end
-
-local function CancelReleaseTask()
-    if release_task ~= nil then
-        release_task:Cancel()
-        release_task = nil
-    end
-end
-
-local function ClearReservedSpeech(inst)
-    if inst ~= nil and inst.components ~= nil and inst.components.maxwellintrospawner ~= nil then
-        inst.components.maxwellintrospawner.speech = nil
-    end
-end
-
-local function ReleaseReservedPlayer(inst)
-    if inst == nil or inst == reserved_player then
-        ClearReservedSpeech(reserved_player)
-        reserved_player = nil
-        CancelReleaseTask()
-    end
-
-    ClearReservedSpeech(inst)
 end
 
 local function SpawnMaxwellIntroForPlayer(inst, speech_name)
@@ -103,38 +72,40 @@ end
 
 function MaxwellIntroSpawner:IsCurrentChapterPlayed()
     local chapter = GetCurrentAdventureChapter()
-    if chapter == nil then
+    local userid = GetPlayerUserid(self.inst)
+    if chapter == nil or userid == nil then
         return false
-    end
-
-    if played_chapter == chapter then
-        return true
     end
 
     if ShardGameIndex ~= nil and
         ShardGameIndex.IsCurrentAdventureMaxwellIntroPlayed ~= nil and
-        ShardGameIndex:IsCurrentAdventureMaxwellIntroPlayed() then
-        played_chapter = chapter
+        ShardGameIndex:IsCurrentAdventureMaxwellIntroPlayed(userid) then
         return true
     end
 
     return false
 end
 
-function MaxwellIntroSpawner:MarkCurrentChapterPlayed()
-    played_chapter = GetCurrentAdventureChapter()
-    if ShardGameIndex ~= nil and ShardGameIndex.MarkCurrentAdventureMaxwellIntroPlayed ~= nil then
-        ShardGameIndex:MarkCurrentAdventureMaxwellIntroPlayed()
-    end
+function MaxwellIntroSpawner:ShouldPlayCurrentChapter()
+    return GetPlayerUserid(self.inst) ~= nil and
+        GetCurrentAdventureSpeechName() ~= nil and
+        not self:IsCurrentChapterPlayed()
 end
 
-function MaxwellIntroSpawner:TryReserve()
-    if self:IsCurrentChapterPlayed() or reserved_player ~= nil then
+function MaxwellIntroSpawner:MarkCurrentChapterPlayed()
+    local userid = GetPlayerUserid(self.inst)
+    if userid == nil then
         return false
     end
 
-    local inst = self.inst
-    if inst == nil or inst.userid == nil or inst.userid == "" then
+    if ShardGameIndex ~= nil and ShardGameIndex.MarkCurrentAdventureMaxwellIntroPlayed ~= nil then
+        return ShardGameIndex:MarkCurrentAdventureMaxwellIntroPlayed(userid)
+    end
+    return false
+end
+
+function MaxwellIntroSpawner:StartCurrentChapter()
+    if self:IsCurrentChapterPlayed() then
         return false
     end
 
@@ -143,46 +114,12 @@ function MaxwellIntroSpawner:TryReserve()
         return false
     end
 
-    reserved_player = inst
-    self.speech = speech_name
-    CancelReleaseTask()
-    release_task = inst:DoTaskInTime(RELEASE_DELAY, function()
-        self:ReleaseReservation()
-    end)
-    return true
-end
-
-function MaxwellIntroSpawner:StartReserved()
-    if self:IsCurrentChapterPlayed() then
-        self:ReleaseReservation()
-        return false
-    end
-
-    if self.inst == nil or self.inst ~= reserved_player then
-        return false
-    end
-
-    local speech_name = self.speech or GetCurrentAdventureSpeechName()
-    if speech_name == nil then
-        self:ReleaseReservation()
-        return false
-    end
-
     if SpawnMaxwellIntroForPlayer(self.inst, speech_name) then
         self:MarkCurrentChapterPlayed()
-        self:ReleaseReservation()
         return true
     end
 
     return false
-end
-
-function MaxwellIntroSpawner:ReleaseReservation()
-    ReleaseReservedPlayer(self.inst)
-end
-
-function MaxwellIntroSpawner:OnRemoveFromEntity()
-    self:ReleaseReservation()
 end
 
 return MaxwellIntroSpawner

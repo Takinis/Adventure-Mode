@@ -33,7 +33,7 @@ local function GetBodyText()
 end
 
 local function OnActivate(inst, doer)
-    SendModRPCToClient(GetClientModRPC("AdventureMode", "Adventure???"), doer.userid, inst, 
+    SendModRPCToClient(GetClientModRPC("AdventureMode", "Adventure???"), doer.userid, inst.GUID,
         ZipAndEncodeString({
 			body = GetBodyText()
 		}))
