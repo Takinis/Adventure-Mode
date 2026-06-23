@@ -36,7 +36,12 @@ AddTaskSet("IslandHop", {
 	-- 	"TeleportatoBaseAdventureLayout",
 	-- },
 	required_prefabs = {
-		"teleportato_ring", "teleportato_box", "teleportato_crank",
-		"teleportato_potato", "teleportato_base", "chester_eyebone",
+		"spawnpoint_master",
+		"teleportato_ring",
+		"teleportato_box",
+		"teleportato_crank",
+		"teleportato_potato",
+		"teleportato_base",
+		"chester_eyebone",
 	},
 })

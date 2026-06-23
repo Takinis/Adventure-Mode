@@ -22,3 +22,20 @@ function EntityScript:GetEventCallbacks(event, source, source_file, test_fn)
         end
     end
 end
+
+-- local REPLACE_COMPONENTS =
+-- {
+--     ["frograin"] = {
+--         testfn = function()
+--             return ShardGameIndex:IsAdventureActive()
+--         end,
+--         target_cmp = "ad_frograin",
+--     },
+-- }
+-- local _AddComponent = EntityScript.AddComponent
+-- function EntityScript:AddComponent(cmp_name, ...)
+--     if REPLACE_COMPONENTS[cmp_name] and REPLACE_COMPONENTS[cmp_name].testfn(cmp_name) then
+--         return _AddComponent(self, REPLACE_COMPONENTS[cmp_name].target_cmp, ...)
+--     end
+--     return _AddComponent(self, cmp_name, ...)
+-- end

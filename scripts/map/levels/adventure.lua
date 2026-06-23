@@ -5,9 +5,6 @@ GLOBAL.setfenv(1, GLOBAL)
 
 ADVENTURE_MODE_SUBS_1 = {
 	["evergreen"]        = { perstory = 0.5, pertask = 1, weight = 1 },
-	["evergreen_short"]  = { perstory = 1, pertask = 1, weight = 1 },
-	["evergreen_normal"] = { perstory = 1, pertask = 1, weight = 1 },
-	["evergreen_tall"]   = { perstory = 1, pertask = 1, weight = 1 },
 	["sapling"]          = { perstory = 0.6, pertask = 0.95, weight = 1 },
 	["beefalo"]          = { perstory = 1, pertask = 1, weight = 1 },
 	["rabbithole"]       = { perstory = 1, pertask = 1, weight = 1 },
@@ -30,6 +27,19 @@ function AdventureModeGetRandomSubstituteList(substitutes, num_choices)
 		local choice = weighted_random_choice(list)
 		list[choice] = nil
 		subs[choice] = substitutes[choice]
+		if choice == "evergreen" then
+			subs["evergreen_short"]  = subs[choice]
+			subs["evergreen_normal"] = subs[choice]
+			subs["evergreen_tall"]   = subs[choice]
+			subs["trees"]   = subs[choice]
+			subs["tree"]   = subs[choice]
+		elseif choice == "rabbithole" then
+			subs["smallmammal"] = subs[choice]
+		elseif choice == "grass" then
+			subs["perma_grass"] = subs[choice]
+		elseif choice == "sapling" then
+			subs["perma_sapling"] = subs[choice]
+		end
 	end
 
 	return subs
