@@ -22,4 +22,8 @@ AddPrefabPostInit("forest", function(inst)
     if not TheWorld.ismastersim then
         return
     end
+
+    if ShardGameIndex:IsAdventureActive() then
+        TheWorld:AddComponent("ad_frograin")
+    end
 end)

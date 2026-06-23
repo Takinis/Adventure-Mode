@@ -14,12 +14,13 @@ AddAdventureLevel({
 		world_size = "default",
 		day = "longdusk",
 		weather = "squall",
-		weather_start = "wet",
 		frograin = "often",
 
 		start_node = "Forest",
-		season = "autumn",
 		season_start = "autumn",
+		autumn       = "veryshortseason",
+		winter       = "veryshortseason",
+		
 		deerclops = "never",
 		bearger = "never",
 		dragonfly = "never",
