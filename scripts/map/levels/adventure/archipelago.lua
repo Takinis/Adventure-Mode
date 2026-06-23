@@ -44,4 +44,5 @@ AddAdventureLevel({
 		spawnmode              = "fixed",
 		resettime              = "default",
 	},
+	substitutes = AdventureModeGetRandomSubstituteList(ADVENTURE_MODE_SUBS_1, 3),
 })
