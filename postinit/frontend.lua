@@ -24,6 +24,10 @@ local title_activate_task = nil
 local wait_for_activate_fade = nil
 local maxwell_intro_state = nil
 
+if TheNet ~= nil and TheNet:IsDedicated() then
+    return
+end
+
 local function CancelFadeTimeout()
     if fade_timeout_task ~= nil then
         fade_timeout_task:Cancel()
