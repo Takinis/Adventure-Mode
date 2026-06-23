@@ -6,10 +6,4 @@ AddPrefabPostInit("cave_entrance", function(inst)
         return
     end
 
-    if ShardGameIndex:IsAdventureActive() then
-        inst:DoTaskInTime(0, function(inst)
-            inst:Remove()
-        end)
-    end
-
 end)
