@@ -7,6 +7,7 @@ local MaxwellTalker = Class(function(self, inst)
     self.player = nil
     self._speech_task = nil
     self._client_cutscene_active = false
+    self._player_cutscene_locked = false
     self._anim_remove_fn = function() self:RemoveAfterAnimation() end
 end)
 
@@ -30,6 +31,48 @@ end
 local function SendClientCutsceneRPC(player, rpc_name, ...)
     if IsPlayerValid(player) then
         SendModRPCToClient(GetClientModRPC("AdventureMode", rpc_name), player.userid, ...)
+    end
+end
+
+local function LockPlayerForCutscene(player)
+    if not IsPlayerValid(player) then
+        return
+    end
+
+    if player.components.locomotor ~= nil then
+        player.components.locomotor:Stop()
+        if player.components.locomotor.StopMoving ~= nil then
+            player.components.locomotor:StopMoving()
+        end
+    end
+
+    if player.ClearBufferedAction ~= nil then
+        player:ClearBufferedAction()
+    end
+
+    if player.components.playercontroller ~= nil then
+        player.components.playercontroller:EnableMapControls(false)
+        player.components.playercontroller:Enable(false)
+    end
+
+    if player.sg ~= nil then
+        player.sg:GoToState("sleep")
+    end
+    return true
+end
+
+local function UnlockPlayerForCutscene(player)
+    if not IsPlayerValid(player) then
+        return
+    end
+
+    if player.sg ~= nil and
+        player.sg.currentstate ~= nil and
+        player.sg.currentstate.name == "sleep" then
+        player.sg:GoToState("wakeup")
+    elseif player.components.playercontroller ~= nil then
+        player.components.playercontroller:EnableMapControls(true)
+        player.components.playercontroller:Enable(true)
     end
 end
 
@@ -88,6 +131,7 @@ end
 
 function MaxwellTalker:StartClientCutscene()
     local x, y, z = self.inst.Transform:GetWorldPosition()
+    self._player_cutscene_locked = LockPlayerForCutscene(self.player) == true
     SendClientCutsceneRPC(self.player, "StartMaxwellIntro", self.inst.GUID, x, y, z)
     self._client_cutscene_active = true
 end
@@ -96,6 +140,10 @@ function MaxwellTalker:StopClientCutscene()
     if self._client_cutscene_active then
         SendClientCutsceneRPC(self.player, "StopMaxwellIntro", self.inst.GUID)
         self._client_cutscene_active = false
+    end
+    if self._player_cutscene_locked then
+        self._player_cutscene_locked = false
+        UnlockPlayerForCutscene(self.player)
     end
 end
 
