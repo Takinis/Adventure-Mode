@@ -4,7 +4,7 @@ GLOBAL.setfenv(1, GLOBAL)
 local function MakeSleepState(server_states)
     return State{
         name = "sleep",
-        tags = { "busy", "sleeping", "nopredict", "nomorph" },
+        tags = { "sleeping", "nopredict", "nomorph" },
         server_states = server_states,
 
         onenter = function(inst)
@@ -12,9 +12,7 @@ local function MakeSleepState(server_states)
                 inst.components.locomotor:Stop()
                 inst.components.locomotor:StopMoving()
             end
-            if inst.ClearBufferedAction ~= nil then
-                inst:ClearBufferedAction()
-            end
+            inst:ClearBufferedAction()
             inst.AnimState:PlayAnimation("sleep")
             if inst.components.playercontroller ~= nil then
                 inst.components.playercontroller:EnableMapControls(false)
@@ -27,9 +25,7 @@ local function MakeSleepState(server_states)
             if inst.components.inventory ~= nil then
                 inst.components.inventory:Hide()
             end
-            if inst.ShowActions ~= nil then
-                inst:ShowActions(false)
-            end
+            inst:ShowActions(false)
         end,
 
         onexit = function(inst)
@@ -39,9 +35,7 @@ local function MakeSleepState(server_states)
             if inst.components.inventory ~= nil then
                 inst.components.inventory:Show()
             end
-            if inst.ShowActions ~= nil then
-                inst:ShowActions(true)
-            end
+            inst:ShowActions(true)
             if inst.components.playercontroller ~= nil then
                 inst.components.playercontroller:EnableMapControls(true)
                 inst.components.playercontroller:Enable(true)

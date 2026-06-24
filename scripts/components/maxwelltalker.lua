@@ -41,14 +41,10 @@ local function LockPlayerForCutscene(player)
 
     if player.components.locomotor ~= nil then
         player.components.locomotor:Stop()
-        if player.components.locomotor.StopMoving ~= nil then
-            player.components.locomotor:StopMoving()
-        end
+        player.components.locomotor:StopMoving()
     end
 
-    if player.ClearBufferedAction ~= nil then
-        player:ClearBufferedAction()
-    end
+    player:ClearBufferedAction()
 
     if player.components.playercontroller ~= nil then
         player.components.playercontroller:EnableMapControls(false)
@@ -276,7 +272,7 @@ function MaxwellTalker:BeginSpeech(player)
     end
 
     self.player = player
-    self:PositionForPlayer(player)
+    self:PositionForPlayer(self.player)
     self.inst:Hide()
 
     if speech.disableplayer then

@@ -9,7 +9,7 @@ return Class(function(self, inst)
     local watched_players = {}
 
     local function IsAdventureActive()
-        return ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive()
+        return ShardGameIndex:IsAdventureActive()
     end
 
     local function IsTwoLands()

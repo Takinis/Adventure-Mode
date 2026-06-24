@@ -101,7 +101,7 @@ return Class(function(self, inst)
     end
 
     function self:GetState()
-        return _ismastersim and BuildClientState(ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil)
+        return _ismastersim and BuildClientState(ShardGameIndex:GetAdventureState())
             or _clientstate
     end
 
@@ -114,7 +114,7 @@ return Class(function(self, inst)
     end
 
     if _ismastersim then
-        SetState(ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil)
+        SetState(ShardGameIndex:GetAdventureState())
     else
         inst:ListenForEvent("adventurestatedirty", OnAdventureStateDirty)
         DecodeState()
