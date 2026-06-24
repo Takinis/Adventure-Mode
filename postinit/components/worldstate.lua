@@ -15,7 +15,7 @@ AddComponentPostInit("worldstate", function(self, inst)
     end
 
     local function GetFunctionInfo(fn)
-        return debug ~= nil and debug.getinfo ~= nil and debug.getinfo(fn, "Sln") or nil
+        return debug ~= nil and debug.getinfo(fn, "Sln") or nil
     end
 
     local BuildCallbackEntry
