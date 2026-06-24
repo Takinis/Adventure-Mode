@@ -96,6 +96,14 @@ local function SetMaxwellIntroCamera(x, y, z)
     end
 end
 
+local function FaceLocalPlayerToMaxwellIntro(x, y, z)
+    local player = ThePlayer
+    if player ~= nil and player:IsValid() and
+        type(x) == "number" and type(y) == "number" and type(z) == "number" then
+        player:FacePoint(x, y, z)
+    end
+end
+
 local function StartMaxwellIntroCutscene(guid, x, y, z)
     local player = ThePlayer
     if player == nil or not player:IsValid() then
@@ -122,6 +130,8 @@ local function StartMaxwellIntroCutscene(guid, x, y, z)
     if player.components.playercontroller ~= nil then
         player.components.playercontroller:Enable(false)
     end
+
+    FaceLocalPlayerToMaxwellIntro(x, y, z)
 
     if player.sg ~= nil then
         player.sg:GoToState("sleep")
