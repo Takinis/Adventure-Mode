@@ -133,11 +133,7 @@ end
 
 local function StopPuppetTalking(puppet, remove_talk_components)
     if puppet.components.maxwelltalker ~= nil then
-        if puppet.components.maxwelltalker.StopTalking ~= nil then
-            puppet.components.maxwelltalker:StopTalking()
-        elseif puppet.components.maxwelltalker.ShutUp ~= nil then
-            puppet.components.maxwelltalker:ShutUp()
-        end
+        puppet.components.maxwelltalker:StopTalking()
 
         if remove_talk_components then
             puppet:RemoveComponent("maxwelltalker")
@@ -154,7 +150,7 @@ local function StopPuppetTalking(puppet, remove_talk_components)
 end
 
 local function SetPuppetCharacter(puppet, character, build)
-    if puppet.SetPuppetCharacter ~= nil then
+    if puppet.prefab == "maxwellthrone_puppet" then
         puppet:SetPuppetCharacter(character, build)
     end
 end
