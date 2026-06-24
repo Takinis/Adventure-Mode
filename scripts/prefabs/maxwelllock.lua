@@ -15,7 +15,7 @@ end
 
 local function OnUnlock(inst, key, doer)
     local throne = FindThrone()
-    if throne == nil or throne.StartEndGameSequence == nil then
+    if throne == nil then
         if inst.components.lock ~= nil then
             inst.components.lock:Lock(doer)
         end
@@ -75,7 +75,7 @@ local function ConfirmUnlock(inst, doer)
     end
 
     local throne = inst.throne ~= nil and inst.throne:IsValid() and inst.throne or FindThrone()
-    if throne == nil or throne.StartEndGameSequence == nil then
+    if throne == nil then
         inst._unlock_pending = nil
         inst._unlocker_userid = nil
         inst.throne = nil
