@@ -28,7 +28,7 @@ if params.teleportato_player_container ~= nil and params.teleportato_player_cont
         fn = function(inst, doer)
             if inst.components.container ~= nil then
                 local teleportato = GetTeleportatoBase(inst)
-                if teleportato ~= nil and type(teleportato.CheckNextLevelSure) == "function" then
+                if teleportato ~= nil then
                     teleportato:CheckNextLevelSure(doer)
                 end
             elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
