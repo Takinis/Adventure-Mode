@@ -288,13 +288,11 @@ local function BuildAdventurePlayerSessions(inst)
 		end
 	end
 
-	if ShardGameIndex ~= nil and ShardGameIndex.GetAdventureState ~= nil then
-		local state = ShardGameIndex:GetAdventureState()
-		if state ~= nil and state.adventure_player_sessions ~= nil then
-			for _, session in ipairs(state.adventure_player_sessions) do
-				if session.userid ~= nil and session.userid ~= "" and not seen[session.userid] then
-					table.insert(sessions, FilterSessionForTeleportato(inst, session))
-				end
+	local state = ShardGameIndex:GetAdventureState()
+	if state ~= nil and state.adventure_player_sessions ~= nil then
+		for _, session in ipairs(state.adventure_player_sessions) do
+			if session.userid ~= nil and session.userid ~= "" and not seen[session.userid] then
+				table.insert(sessions, FilterSessionForTeleportato(inst, session))
 			end
 		end
 	end
@@ -336,18 +334,15 @@ local function SyncPartNetvar(inst)
 end
 
 local function IsAdventureActive()
-	return ShardGameIndex ~= nil and ShardGameIndex.IsAdventureActive ~= nil and ShardGameIndex:IsAdventureActive()
+	return ShardGameIndex:IsAdventureActive()
 end
 
 local function IsMasterAdventureShard()
-	return ShardGameIndex ~= nil and
-		(ShardGameIndex.IsMasterShard == nil or ShardGameIndex:IsMasterShard())
+	return ShardGameIndex:IsMasterShard()
 end
 
 local function SecondaryShardHasPlayers()
-	return ShardGameIndex ~= nil and
-		ShardGameIndex.GetSecondaryShardPlayerCount ~= nil and
-		ShardGameIndex:GetSecondaryShardPlayerCount() > 0
+	return ShardGameIndex:GetSecondaryShardPlayerCount() > 0
 end
 
 local function DenyTeleportato(doer, message)
