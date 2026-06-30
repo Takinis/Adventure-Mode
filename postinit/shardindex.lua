@@ -68,3 +68,40 @@ local _OnGenerateNewWorld = ShardIndex.OnGenerateNewWorld
 function ShardIndex:OnGenerateNewWorld(savedata, metadataStr, session_identifier, cb)
     self.adventure:OnGenerateNewWorldWithOriginal(_OnGenerateNewWorld, savedata, metadataStr, session_identifier, cb)
 end
+
+
+--------------------------------------世界加载相关内容------------------------------------------
+
+GLOBAL_SAVEDATA = nil
+
+local _OnGenerateNewWorld = ShardIndex.OnGenerateNewWorld
+function ShardIndex:OnGenerateNewWorld(savedata, ...)  --这里传入的savedata是一个字符串而不是表
+    print("ShardIndex:OnGenerateNewWorld")
+    local success, world_table
+    world_table = savedata
+    if type(savedata) == "string" then
+        success, world_table = RunInSandbox(savedata)
+    end
+    GLOBAL_SAVEDATA = world_table
+    return _OnGenerateNewWorld(self, savedata, ...)
+end
+
+local _GetSaveData = ShardIndex.GetSaveData
+function ShardIndex:GetSaveData(_callback, ...)
+    print("ShardIndex:GetSaveData")
+    local function callback(savedata, ...)
+        GLOBAL_SAVEDATA = savedata
+        return _callback(savedata, ...)
+    end
+    return _GetSaveData(self, callback, ...)
+end
+
+local _GetSaveDataFile = ShardIndex.GetSaveDataFile
+function ShardIndex:GetSaveDataFile(file, _callback, ...)
+    print("ShardIndex:GetSaveDataFile")
+    local function callback(savedata, ...)
+        GLOBAL_SAVEDATA = savedata
+        return _callback(savedata, ...)
+    end
+    return _GetSaveDataFile(self, file, callback, ...)
+end

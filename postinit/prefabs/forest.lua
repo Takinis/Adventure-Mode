@@ -2,9 +2,11 @@ local AddPrefabPostInit = AddPrefabPostInit
 GLOBAL.setfenv(1, GLOBAL)
 
 AddPrefabPostInit("forest", function(inst)
-    if ShardGameIndex.adventure:IsActive() then
-        if not (ShardGameIndex.adventure:GetState().current_preset == "ENDING") then -- 终章没有海洋特效
-            TheWorld.Map:AlwaysDrawWaves(true)
+    print("GLOBAL_SAVEDATA", GLOBAL_SAVEDATA)
+    if GLOBAL_SAVEDATA and GLOBAL_SAVEDATA.map and (GLOBAL_SAVEDATA.map.has_ocean == false) then
+        TheWorld.Map:AlwaysDrawWaves(true)
+        if ShardGameIndex:GetAdventureState() and ShardGameIndex:GetAdventureState().current_preset == "ENDING" then -- 终章没有海洋特效
+            TheWorld.Map:AlwaysDrawWaves(false)
         end
         TheWorld.Map:DoOceanRender(false)
         TheWorld.Map:SetUndergroundFadeHeight(12) -- 看起来效果最好
