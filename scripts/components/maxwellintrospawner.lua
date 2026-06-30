@@ -13,7 +13,7 @@ local MaxwellIntroSpawner = Class(function(self, inst)
 end)
 
 local function GetCurrentAdventureState()
-    return ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
+    return ShardGameIndex:GetAdventureState()
 end
 
 local function GetPlayerUserid(inst)
@@ -28,8 +28,7 @@ local function GetCurrentAdventureChapter()
 end
 
 local function GetCurrentAdventurePreset()
-    return ShardGameIndex ~= nil and ShardGameIndex.GetAdventurePreset ~= nil and
-        ShardGameIndex:GetAdventurePreset() or nil
+    return ShardGameIndex:GetAdventurePreset()
 end
 
 local function GetCurrentAdventureSpeechName()
@@ -77,9 +76,7 @@ function MaxwellIntroSpawner:IsCurrentChapterPlayed()
         return false
     end
 
-    if ShardGameIndex ~= nil and
-        ShardGameIndex.IsCurrentAdventureMaxwellIntroPlayed ~= nil and
-        ShardGameIndex:IsCurrentAdventureMaxwellIntroPlayed(userid) then
+    if ShardGameIndex:IsCurrentAdventureMaxwellIntroPlayed(userid) then
         return true
     end
 
@@ -98,10 +95,7 @@ function MaxwellIntroSpawner:MarkCurrentChapterPlayed()
         return false
     end
 
-    if ShardGameIndex ~= nil and ShardGameIndex.MarkCurrentAdventureMaxwellIntroPlayed ~= nil then
-        return ShardGameIndex:MarkCurrentAdventureMaxwellIntroPlayed(userid)
-    end
-    return false
+    return ShardGameIndex:MarkCurrentAdventureMaxwellIntroPlayed(userid)
 end
 
 function MaxwellIntroSpawner:StartCurrentChapter()

@@ -333,16 +333,13 @@ local function SyncPartNetvar(inst)
 	end
 end
 
-local function IsAdventureActive()
-	return ShardGameIndex:IsAdventureActive()
-end
-
 local function IsMasterAdventureShard()
 	return ShardGameIndex:IsMasterShard()
 end
 
 local function SecondaryShardHasPlayers()
-	return ShardGameIndex:GetSecondaryShardPlayerCount() > 0
+	return TheWorld ~= nil and TheWorld.GetSecondaryShardPlayerCount ~= nil and
+		TheWorld:GetSecondaryShardPlayerCount() > 0
 end
 
 local function DenyTeleportato(doer, message)
@@ -368,7 +365,7 @@ local function AreAllPlayersNearby(inst)
 end
 
 local function TransitionToNextLevel(inst, doer)
-	if not IsAdventureActive() then
+	if not TheWorld:IsAdventureActive() then
 		return false
 	end
 

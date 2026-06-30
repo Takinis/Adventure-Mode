@@ -17,10 +17,13 @@ local ADVENTURE_TITLE_BY_PRESET =
     ENDING = "Checkmate",
 }
 
+local function GetAdventureState()
+    return ShardGameIndex:GetAdventureState()
+end
+
 local function GetAdventureTitleData()
-    local state = ShardGameIndex ~= nil and ShardGameIndex:GetAdventureState() or nil
-    local preset = ShardGameIndex ~= nil and ShardGameIndex.GetAdventurePreset ~= nil and
-        ShardGameIndex:GetAdventurePreset() or nil
+    local state = GetAdventureState()
+    local preset = ShardGameIndex:GetAdventurePreset()
 
     local level = preset ~= nil and ADVENTURE_TITLE_BY_PRESET[preset] or nil
     level = level or tostring(preset or "Adventure")
@@ -31,12 +34,21 @@ local function GetAdventureTitleData()
     return level, string.format("Chapter %d of %d", chapter, total)
 end
 
-local function IsAdventureActive()
-    return ShardGameIndex ~= nil and ShardGameIndex:IsAdventureActive()
+local function GetAdventureTitleKey()
+    local state = GetAdventureState()
+    local preset = ShardGameIndex:GetAdventurePreset()
+
+    return table.concat({
+        tostring(state ~= nil and state.sequence_id or "default"),
+        tostring(state ~= nil and state.started_at or ""),
+        tostring(state ~= nil and state.current_session_id or ""),
+        tostring(state ~= nil and state.chapter or 1),
+        tostring(preset or "Adventure"),
+    }, ":")
 end
 
 local function ShowAdventureTitle(inst, retries)
-    if not IsAdventureActive() then
+    if not TheWorld:IsAdventureActive() then
         return
     end
 
@@ -51,23 +63,24 @@ local function ShowAdventureTitle(inst, retries)
     local maxwell_intro = inst.components.maxwellintrospawner
     local play_maxwell_intro = maxwell_intro ~= nil and maxwell_intro:ShouldPlayCurrentChapter() or false
 
-    if sent_adventure_title_by_userid[inst.userid] then
+    local title_key = GetAdventureTitleKey()
+    if sent_adventure_title_by_userid[inst.userid] == title_key then
         return
     end
 
     local level, chapter = GetAdventureTitleData()
     SendModRPCToClient(GetClientModRPC("AdventureMode", "ShowTitle"), inst.userid, level, chapter, play_maxwell_intro)
-    sent_adventure_title_by_userid[inst.userid] = true
+    sent_adventure_title_by_userid[inst.userid] = title_key
 end
 
 local function OnLocalPlayerActivated(inst)
-    if TheFrontEnd ~= nil and TheFrontEnd.OnLocalPlayerActivated ~= nil then
+    if TheFrontEnd ~= nil then
         TheFrontEnd:OnLocalPlayerActivated(inst)
     end
 end
 
 local function OnLocalPlayerDeactivated(inst)
-    if TheFrontEnd ~= nil and TheFrontEnd.OnLocalPlayerDeactivated ~= nil then
+    if TheFrontEnd ~= nil then
         TheFrontEnd:OnLocalPlayerDeactivated(inst)
     end
 end
@@ -91,7 +104,9 @@ local function OnAdventurePlayerDeactivated(inst)
 end
 
 local function OnAdventurePlayerDeath(inst)
-    ShardGameIndex:OnAdventurePlayerDeath(inst)
+    if TheWorld ~= nil and TheWorld.StartAdventureDeathCheck ~= nil then
+        TheWorld:StartAdventureDeathCheck()
+    end
 end
 
 AddPlayerPostInit(function(inst)
