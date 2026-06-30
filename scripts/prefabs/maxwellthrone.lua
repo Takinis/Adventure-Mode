@@ -102,7 +102,7 @@ local function GetPuppetRecord(character, build, userid)
 end
 
 local function GetDefaultPuppetRecord()
-    local record = ShardGameIndex:GetAdventureMaxwellThronePuppet()
+    local record = ShardGameIndex.adventure:GetMaxwellThronePuppet()
     if record ~= nil then
         return GetPuppetRecord(record.character, record.build, record.userid)
     end
@@ -110,7 +110,7 @@ local function GetDefaultPuppetRecord()
 end
 
 local function SavePuppetRecord(record)
-    ShardGameIndex:SetAdventureMaxwellThronePuppet(record)
+    ShardGameIndex.adventure:SetMaxwellThronePuppet(record)
 end
 
 local function GetPuppetNameOverride(character)
@@ -264,7 +264,7 @@ local function maxwellthrone_puppet_fn()
 end
 
 local function ReturnToMainWorld()
-    if ReturnFromShardAdventure ~= nil and ReturnFromShardAdventure("maxwellthrone") then
+    if ShardGameIndex ~= nil and ShardGameIndex.adventure ~= nil and ShardGameIndex.adventure:ReturnFromShard("maxwellthrone") then
         return
     end
 end

@@ -4,7 +4,7 @@ local AddShardModRPCHandler = AddShardModRPCHandler
 GLOBAL.setfenv(1, GLOBAL)
 
 AddClientModRPCHandler("AdventureMode", "ShowTitle", function(level, chapter, play_maxwell_intro)
-    if TheFrontEnd ~= nil and TheFrontEnd.QueueAdventureTitle ~= nil then
+    if TheFrontEnd ~= nil then
         TheFrontEnd:QueueAdventureTitle(level, chapter, play_maxwell_intro == true)
     end
 end)
@@ -14,7 +14,7 @@ AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(guid, x, y
         return
     end
 
-    if TheFrontEnd ~= nil and TheFrontEnd.StartMaxwellIntroCutscene ~= nil then
+    if TheFrontEnd ~= nil then
         TheFrontEnd:StartMaxwellIntroCutscene(guid, x, y, z)
     end
 end)
@@ -24,7 +24,7 @@ AddClientModRPCHandler("AdventureMode", "StopMaxwellIntro", function(guid)
         return
     end
 
-    if TheFrontEnd ~= nil and TheFrontEnd.StopMaxwellIntroCutscene ~= nil then
+    if TheFrontEnd ~= nil then
         TheFrontEnd:StopMaxwellIntroCutscene(guid)
     end
 end)
@@ -75,7 +75,7 @@ AddClientModRPCHandler("AdventureMode", "StartMaxwellThroneCutscene", function(g
     maxwell_throne_cutscene_guid = guid
 
     local inst = GetLocalMaxwellThrone(guid)
-    if inst ~= nil and inst.StopLocalCameraController ~= nil then
+    if inst ~= nil then
         inst:StopLocalCameraController()
     end
 
@@ -154,9 +154,7 @@ AddClientModRPCHandler("AdventureMode", "FadeInMaxwellThroneCutscene", function(
 end)
 
 AddShardModRPCHandler("AdventureMode", "ForcePlayersToMaster", function()
-    if ShardGameIndex ~= nil and ShardGameIndex.ForceLocalPlayersToMaster ~= nil then
-        ShardGameIndex:ForceLocalPlayersToMaster()
-    end
+    ShardWorldIndex:ForceLocalPlayersToMaster()
 end)
 
 local function DecodeShardPayload(data)
@@ -167,67 +165,47 @@ local function DecodeShardPayload(data)
     return type(data) == "table" and data or {}
 end
 
-local function RestartCurrentShardSlot(transition)
-    if ShardGameIndex == nil then
-        return
-    end
-
-    local params = {
-        reset_action = RESET_ACTION.LOAD_SLOT,
-        save_slot = ShardGameIndex:GetSlot(),
-        adventure_transition = transition,
-    }
-
-    if TheWorld ~= nil then
-        TheWorld:DoTaskInTime(0, function()
-            StartNextInstance(params)
-        end)
-    else
-        StartNextInstance(params)
-    end
-end
-
 AddShardModRPCHandler("AdventureMode", "BeginSecondaryAdventure", function(_, data)
-    if ShardGameIndex == nil or ShardGameIndex.AdventureBeginSecondary == nil then
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
         return
     end
 
     local opts = DecodeShardPayload(data)
-    ShardGameIndex:AdventureBeginSecondary(opts, function(success)
+    ShardGameIndex.adventure:BeginSecondary(opts, function(success)
         if success then
-            RestartCurrentShardSlot("secondary_begin")
+            ShardWorldIndex:RestartCurrentSlotAfterShardRPC(ShardGameIndex, { adventure_transition = "secondary_begin" })
         end
     end)
 end)
 
 AddShardModRPCHandler("AdventureMode", "AdvanceSecondaryAdventure", function(_, data)
-    if ShardGameIndex == nil or ShardGameIndex.AdventureAdvanceSecondary == nil then
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
         return
     end
 
     local opts = DecodeShardPayload(data)
-    ShardGameIndex:AdventureAdvanceSecondary(opts, function(success)
+    ShardGameIndex.adventure:AdvanceSecondary(opts, function(success)
         if success then
-            RestartCurrentShardSlot("secondary_advance")
+            ShardWorldIndex:RestartCurrentSlotAfterShardRPC(ShardGameIndex, { adventure_transition = "secondary_advance" })
         end
     end)
 end)
 
 AddShardModRPCHandler("AdventureMode", "ReturnSecondaryAdventure", function(_, data)
-    if ShardGameIndex == nil or ShardGameIndex.AdventureReturnToMainWorld == nil then
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
         return
     end
 
     local opts = DecodeShardPayload(data)
-    ShardGameIndex:AdventureReturnToMainWorld(opts.reason or "return", function(success)
+    ShardGameIndex.adventure:ReturnToMainWorld(opts.reason or "return", function(success)
         if success then
-            RestartCurrentShardSlot(opts.reason or "secondary_return")
+            ShardWorldIndex:RestartCurrentSlotAfterShardRPC(ShardGameIndex, { adventure_transition = opts.reason or "secondary_return" })
         end
     end)
 end)
 
 AddShardModRPCHandler("AdventureMode", "ReturnFromAdventure", function(_, data)
-    if ReturnFromShardAdventure == nil then
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
         return
     end
 
@@ -235,10 +213,10 @@ AddShardModRPCHandler("AdventureMode", "ReturnFromAdventure", function(_, data)
     local reason = opts.reason or "return"
     if TheWorld ~= nil then
         TheWorld:DoTaskInTime(0, function()
-            ReturnFromShardAdventure(reason)
+            ShardGameIndex.adventure:ReturnFromShard(reason)
         end)
     else
-        ReturnFromShardAdventure(reason)
+        ShardGameIndex.adventure:ReturnFromShard(reason)
     end
 end)
 
@@ -253,8 +231,7 @@ AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
 
     local inst = Ents[data.guid]
     if inst == nil or not inst:IsValid() or
-        type(inst.Adventure) ~= "function" or
-        (inst.prefab ~= "adventure_portal" and not inst:HasTag("teleportato")) then
+        (inst.prefab ~= "adventure_portal" and inst.prefab ~= "teleportato") then
         return
     end
 
@@ -274,9 +251,7 @@ AddModRPCHandler("AdventureMode", "RequestTeleportatoConfirm", function(player, 
     if inst ~= nil and inst:IsValid() and inst:HasTag("teleportato_player_container") then
         inst = inst._base
     end
-    if inst == nil or not inst:IsValid() or
-        not inst:HasTag("teleportato") or
-        type(inst.CheckNextLevelSure) ~= "function" then
+    if inst == nil or not inst:IsValid() or not inst:HasTag("teleportato") then
         return
     end
 
@@ -305,13 +280,9 @@ AddModRPCHandler("AdventureMode", "UnlockMaxwell", function(player, guid, accept
         if inst.components.lock:IsLocked() then
             return
         end
-        if type(inst.ConfirmUnlock) == "function" then
-            inst:ConfirmUnlock(player)
-        end
-    elseif type(inst.CancelUnlock) == "function" then
+        inst:ConfirmUnlock(player)
+    else
         inst:CancelUnlock(player)
-    elseif inst.components.lock ~= nil then
-        inst.components.lock:Lock(player)
     end
 end)
 
@@ -322,8 +293,7 @@ AddModRPCHandler("AdventureMode", "SkipMaxwellIntro", function(player, guid)
 
     local inst = Ents[guid]
     if inst ~= nil and inst:IsValid() and inst.prefab == "maxwellintro" and
-        inst.components.maxwelltalker ~= nil and
-        type(inst.components.maxwelltalker.CancelSpeech) == "function" then
+        inst.components.maxwelltalker ~= nil then
         inst.components.maxwelltalker:CancelSpeech(player)
     end
 end)

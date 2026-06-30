@@ -288,7 +288,7 @@ local function BuildAdventurePlayerSessions(inst)
 		end
 	end
 
-	local state = ShardGameIndex:GetAdventureState()
+	local state = ShardGameIndex.adventure:GetState()
 	if state ~= nil and state.adventure_player_sessions ~= nil then
 		for _, session in ipairs(state.adventure_player_sessions) do
 			if session.userid ~= nil and session.userid ~= "" and not seen[session.userid] then
@@ -334,7 +334,7 @@ local function SyncPartNetvar(inst)
 end
 
 local function IsMasterAdventureShard()
-	return ShardGameIndex:IsMasterShard()
+	return ShardGameIndex.adventure:IsMasterShard()
 end
 
 local function SecondaryShardHasPlayers()
@@ -415,7 +415,7 @@ local function TransitionToNextLevel(inst, doer)
 
 	TheWorld:DoTaskInTime(5, function()
 		inst._activating = false
-		AdvanceShardAdventure({ player_sessions = player_sessions })
+		ShardGameIndex.adventure:AdvanceShard({ player_sessions = player_sessions })
 	end)
 
 	return true

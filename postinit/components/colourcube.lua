@@ -39,7 +39,7 @@ local AD_SEASON_COLOURCUBES = {
 
 
 AddComponentPostInit("colourcube", function(self, inst)
-    if ShardGameIndex:IsAdventureActive() then
+    if ShardGameIndex.adventure:IsActive() then
         self:AddSeasonColourCube(AD_SEASON_COLOURCUBES)
         self.adventure_mode = true
     end

@@ -10,7 +10,7 @@ AddPrefabPostInit("statueharp", function(inst)
     -- local _statueharp_fn = Prefabs["statueharp"].fn
     -- local _doCharlieTest, scope_fn, i = ToolUtil.GetUpvalue(_statueharp_fn, "doCharlieTest")
     -- local doCharlieTest = function(inst)
-    --     if ShardGameIndex:IsAdventureActive() then
+    --     if ShardGameIndex.adventure:IsActive() then
     --         return
     --     end
 
@@ -21,13 +21,13 @@ AddPrefabPostInit("statueharp", function(inst)
     --     debug.setupvalue(scope_fn, i, doCharlieTest)
     -- end
 
-    if ShardGameIndex:IsAdventureActive() then
+    if ShardGameIndex.adventure:IsActive() then
         inst.charlie_test = true
     end
 
     local _invokecharliesanger, scope_fn, i = ToolUtil.GetUpvalue(inst.OnLoad, "invokecharliesanger")
     local invokecharliesanger = function(inst)
-        if ShardGameIndex:IsAdventureActive() then
+        if ShardGameIndex.adventure:IsActive() then
             return
         end
 

@@ -18,12 +18,12 @@ local ADVENTURE_TITLE_BY_PRESET =
 }
 
 local function GetAdventureState()
-    return ShardGameIndex:GetAdventureState()
+    return ShardGameIndex.adventure:GetState()
 end
 
 local function GetAdventureTitleData()
     local state = GetAdventureState()
-    local preset = ShardGameIndex:GetAdventurePreset()
+    local preset = ShardGameIndex.adventure:GetPreset()
 
     local level = preset ~= nil and ADVENTURE_TITLE_BY_PRESET[preset] or nil
     level = level or tostring(preset or "Adventure")
@@ -36,7 +36,7 @@ end
 
 local function GetAdventureTitleKey()
     local state = GetAdventureState()
-    local preset = ShardGameIndex:GetAdventurePreset()
+    local preset = ShardGameIndex.adventure:GetPreset()
 
     return table.concat({
         tostring(state ~= nil and state.sequence_id or "default"),
@@ -86,11 +86,11 @@ local function OnLocalPlayerDeactivated(inst)
 end
 
 local function RememberStartingInventory(inst)
-    ShardGameIndex:RememberStartingInventory(inst)
+    ShardGameIndex.adventure:RememberStartingInventory(inst)
 end
 
 local function OnAdventurePlayerActivated(inst)
-    ShardGameIndex:OnAdventurePlayerActivated(inst)
+    ShardGameIndex.adventure:OnPlayerActivated(inst)
 end
 
 local function OnAdventurePlayerDeactivated(inst)
@@ -100,7 +100,7 @@ local function OnAdventurePlayerDeactivated(inst)
             sent_adventure_title_by_userid[inst.userid] = nil
         end
     end
-    ShardGameIndex:OnAdventurePlayerDeactivated(inst)
+    ShardGameIndex.adventure:OnPlayerDeactivated(inst)
 end
 
 local function OnAdventurePlayerDeath(inst)

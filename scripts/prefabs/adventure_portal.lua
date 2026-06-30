@@ -22,7 +22,9 @@ local function Adventure(inst)
                 v.sg:GoToState("teleportato_teleport")
             end
         end
-        TheWorld:DoTaskInTime(5, function() StartShardAdventure({ level_sequence = ShardGameIndex:BuildAdventurePlaylist() } ) end)
+        TheWorld:DoTaskInTime(5, function()
+            ShardGameIndex.adventure:Start({ level_sequence = ShardGameIndex.adventure:BuildPlaylist() })
+        end)
     end
 end
 

@@ -13,7 +13,7 @@ local function SetRecipeIngredients(recipe_name, ingredients)
 end
 
 AddSimPostInit(function()
-    if not ShardGameIndex:IsAdventureActive() then
+    if not ShardGameIndex.adventure:IsActive() then
         return
     end
     SetRecipeIngredients("boat_item", {Ingredient("boards", 9999)})

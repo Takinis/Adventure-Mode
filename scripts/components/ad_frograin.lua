@@ -95,7 +95,7 @@ local function CancelSpawn(player)
 end
 
 local function ToggleUpdate(force)
-    if ShardGameIndex:GetAdventureState().current_preset == "RAINY" and -- 只在冒险模式：冷淡的接待关卡生效
+    if ShardGameIndex.adventure:GetState().current_preset == "RAINY" and -- 只在冒险模式：冷淡的接待关卡生效
 		not _worldstate.iswinter and
         _worldstate.israining and
         _worldstate.precipitationrate > TUNING.FROG_RAIN_PRECIPITATION and

@@ -27,7 +27,7 @@ end
 -- {
 --     ["frograin"] = {
 --         testfn = function()
---             return ShardGameIndex:IsAdventureActive()
+--             return ShardGameIndex.adventure:IsActive()
 --         end,
 --         target_cmp = "ad_frograin",
 --     },

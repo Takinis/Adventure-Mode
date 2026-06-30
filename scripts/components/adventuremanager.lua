@@ -9,7 +9,7 @@ return Class(function(self, inst)
     local watched_players = {}
 
     local function IsTwoLands()
-        return TheWorld:IsAdventureActive() and ShardGameIndex:GetAdventurePreset() == TWO_LANDS_PRESET
+        return TheWorld:IsAdventureActive() and ShardGameIndex.adventure:GetPreset() == TWO_LANDS_PRESET
     end
 
     local function IsPartsIslandArea(area)

@@ -23,7 +23,12 @@ local stategraphs_posts = {
 }
 
 modimport("postinit/widgets/redux/templates")
+
+modimport("postinit/shardworldindex")
+modimport("postinit/shardadventureindex")
+modimport("postinit/shardsaveindex")
 modimport("postinit/shardindex")
+
 modimport("postinit/entityscript")
 modimport("postinit/frontend")
 modimport("postinit/sim")
