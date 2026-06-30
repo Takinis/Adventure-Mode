@@ -50,8 +50,20 @@ local function write_sidecar(index, data, cb)
     cb = cb or NOOP
 
     local filename = get_sidecar_filename(index)
-    local str = DataDumper(data or {}, nil, false)
     local slot, shard = ShardWorldIndex:GetSlotAndShard(index)
+    if data == nil then
+        if slot ~= nil and shard ~= nil then
+            -- Cluster-slot saves do not expose a Lua erase API; empty data is treated as cleared.
+            TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, "", false, cb)
+        elseif ErasePersistentString ~= nil then
+            ErasePersistentString(filename, cb)
+        else
+            TheSim:SetPersistentString(filename, "", false, cb)
+        end
+        return
+    end
+
+    local str = DataDumper(data, nil, false)
     if slot ~= nil and shard ~= nil then
         TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, str, false, cb)
     else
@@ -163,6 +175,98 @@ local function apply_pending_adventure_generation_state(state)
     state.updated_at = os.time()
 end
 
+local function has_pending_player_sessions(state)
+    return type(state.player_sessions) == "table" and #state.player_sessions > 0
+end
+
+local function needs_generation_postprocess(state, session_identifier)
+    return state ~= nil and
+        state.active == true and
+        state.current_session_id == session_identifier and
+        ((has_pending_player_sessions(state) and state.last_player_session_injected ~= session_identifier) or
+        (state.cleanup_session_id ~= nil and state.cleanup_session_id ~= ""))
+end
+
+local function is_generation_saved_without_sidecar(state, session_identifier)
+    return is_pending_adventure_generation_state(state) and
+        session_identifier ~= nil and
+        session_identifier ~= "" and
+        state.main ~= nil and
+        session_identifier ~= state.main.session_id and
+        session_identifier ~= state.current_session_id
+end
+
+local function finish_generated_adventure_world(index, state, session_identifier, savedata, use_existing_world, cb)
+    cb = cb or NOOP
+
+    if state == nil or not state.active then
+        cb()
+        return
+    end
+
+    if state.main == nil or state.main.session_id == nil or state.main.session_id == "" then
+        print("[Adventure Mode] Clearing adventure sidecar without a stashed main world.")
+        clear_adventure_sidecar(index, cb)
+        return
+    end
+
+    if session_identifier == nil or session_identifier == "" then
+        cb()
+        return
+    end
+
+    state.current_session_id = session_identifier
+    state.updated_at = os.time()
+    set_adventure_state(index, state)
+
+    local can_process_sessions = TheNet ~= nil and TheNet:GetIsServer()
+    local should_inject_players = can_process_sessions and
+        has_pending_player_sessions(state) and
+        state.last_player_session_injected ~= session_identifier
+    local cleanup_session_id = state.cleanup_session_id
+
+    local function save_state()
+        local has_cleanup_session = cleanup_session_id ~= nil and cleanup_session_id ~= ""
+        local should_cleanup_session = can_process_sessions and
+            has_cleanup_session and
+            cleanup_session_id ~= state.main.session_id
+
+        if not has_cleanup_session or cleanup_session_id == state.main.session_id then
+            state.cleanup_session_id = nil
+            write_sidecar(index, state, cb)
+            return
+        end
+
+        if not should_cleanup_session then
+            write_sidecar(index, state, cb)
+            return
+        end
+
+        write_sidecar(index, state, function()
+            ShardWorldIndex:DeleteSessionIfNotHome(cleanup_session_id, state.main.session_id)
+            state.cleanup_session_id = nil
+            write_sidecar(index, state, cb)
+        end)
+    end
+
+    if should_inject_players then
+        local function on_players_injected()
+            state.player_sessions = nil
+            state.last_player_session_injected = session_identifier
+            save_state()
+        end
+
+        if use_existing_world then
+            ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, session_identifier, state.player_sessions, on_players_injected)
+        else
+            ShardWorldIndex:InjectPlayerSessionsIntoWorld(index, state.player_sessions, session_identifier, savedata, on_players_injected)
+        end
+        return
+    end
+
+    save_state()
+end
+
 local function load_adventure_sidecar_state(index, state, cb)
     cb = cb or NOOP
 
@@ -178,13 +282,27 @@ local function load_adventure_sidecar_state(index, state, cb)
         return
     end
 
+    local session_id = index:GetSession()
+    if session_id ~= nil and session_id ~= "" and is_generation_saved_without_sidecar(state, session_id) then
+        ShardWorldIndex:WorldSessionExists(index, session_id, function(exists)
+            if exists then
+                print("[Adventure Mode] Finishing interrupted adventure world generation.")
+                apply_pending_adventure_generation_state(state)
+                finish_generated_adventure_world(index, state, session_id, nil, true, cb)
+            else
+                print("[Adventure Mode] Generated adventure session is missing; returning to stashed main world.")
+                finish_interrupted_return_to_main(index, state, cb)
+            end
+        end)
+        return
+    end
+
     if is_adventure_transition_restart() then
         set_adventure_state(index, state)
         cb()
         return
     end
 
-    local session_id = index:GetSession()
     if session_id == nil or session_id == "" then
         if is_pending_adventure_generation_state(state) then
             print("[Adventure Mode] Resuming interrupted adventure world generation.")
@@ -221,8 +339,13 @@ local function load_adventure_sidecar_state(index, state, cb)
     if state.current_session_id == session_id then
         ShardWorldIndex:WorldSessionExists(index, session_id, function(exists)
             if exists then
-                set_adventure_state(index, state)
-                cb()
+                if needs_generation_postprocess(state, session_id) then
+                    print("[Adventure Mode] Finishing pending adventure world postprocess.")
+                    finish_generated_adventure_world(index, state, session_id, nil, true, cb)
+                else
+                    set_adventure_state(index, state)
+                    cb()
+                end
             else
                 print("[Adventure Mode] Current adventure session is missing; returning to stashed main world.")
                 finish_interrupted_return_to_main(index, state, cb)
@@ -693,7 +816,7 @@ function ShardAdventureIndex:ReservesSlot()
         state.main.session_id ~= ""
 end
 
-function ShardAdventureIndex:DeleteWithOriginal(delete_fn, cb, save_options)
+function ShardAdventureIndex:PreservePendingGenerationOnDelete(save_options, cb)
     local index = self.index
     local state = get_adventure_state(index)
     if save_options and state ~= nil and state.active and should_preserve_pending_adventure_generation(state) then
@@ -707,40 +830,40 @@ function ShardAdventureIndex:DeleteWithOriginal(delete_fn, cb, save_options)
                 end
             end)
         end)
-        return
+        return true
     end
 
+    return false
+end
+
+function ShardAdventureIndex:PrepareDelete(save_options, cb)
+    local index = self.index
+    local state = get_adventure_state(index)
     if save_options and state ~= nil and state.active then
         prepare_interrupted_adventure_regen(index)
     end
 
-    clear_adventure_sidecar(index, function()
-        delete_fn(index, cb, save_options)
-    end)
+    clear_adventure_sidecar(index, cb)
 end
 
-function ShardAdventureIndex:SetServerShardDataWithOriginal(set_server_shard_data_fn, customoptions, serverdata, onsavedcb)
+function ShardAdventureIndex:PrepareSetServerShardData(cb)
     local index = self.index
     local state = get_adventure_state(index)
     if state ~= nil and state.active and not should_preserve_pending_adventure_generation(state) then
         prepare_interrupted_adventure_regen(index)
-        clear_interrupted_adventure_transition(index, function()
-            set_server_shard_data_fn(index, customoptions, serverdata, onsavedcb)
-        end)
-        return
+        clear_interrupted_adventure_transition(index, cb)
+        return true
     end
 
     if state ~= nil and not state.active then
-        clear_adventure_sidecar(index, function()
-            set_server_shard_data_fn(index, customoptions, serverdata, onsavedcb)
-        end)
-        return
+        clear_adventure_sidecar(index, cb)
+        return true
     end
 
-    set_server_shard_data_fn(index, customoptions, serverdata, onsavedcb)
+    return false
 end
 
-function ShardAdventureIndex:OnGenerateNewWorldWithOriginal(on_generate_new_world_fn, savedata, metadataStr, session_identifier, cb)
+function ShardAdventureIndex:BeforeGenerateNewWorld(savedata, session_identifier)
     local index = self.index
     local state = get_adventure_state(index)
     if state ~= nil and state.active then
@@ -751,36 +874,19 @@ function ShardAdventureIndex:OnGenerateNewWorldWithOriginal(on_generate_new_worl
             savedata.map.topology.adventure_state = BuildAdventureClientState(state)
         end
     end
+end
 
-    on_generate_new_world_fn(index, savedata, metadataStr, session_identifier, function(...)
-        local args = { ... }
-        state = get_adventure_state(index)
-        if state ~= nil and state.active then
-            state.current_session_id = session_identifier
-            state.updated_at = os.time()
-            local should_mark_injected = type(state.player_sessions) == "table" and
-                #state.player_sessions > 0 and
-                session_identifier ~= nil and
-                session_identifier ~= "" and
-                TheNet:GetIsServer()
-            ShardWorldIndex:InjectPlayerSessionsIntoWorld(index, state.player_sessions, session_identifier, savedata, function()
-                if should_mark_injected then
-                    state.player_sessions = nil
-                    state.last_player_session_injected = session_identifier
-                end
-                local cleanup_session_id = state.cleanup_session_id
-                state.cleanup_session_id = nil
-                write_sidecar(index, state, function()
-                    ShardWorldIndex:DeleteSessionIfNotHome(cleanup_session_id, state.main.session_id)
-                    if cb ~= nil then
-                        cb(unpack(args))
-                    end
-                end)
-            end)
-        elseif cb ~= nil then
-            cb(unpack(args))
-        end
-    end)
+function ShardAdventureIndex:AfterGenerateNewWorld(savedata, session_identifier, cb)
+    cb = cb or NOOP
+
+    local index = self.index
+    local state = get_adventure_state(index)
+    if state ~= nil and state.active then
+        finish_generated_adventure_world(index, state, session_identifier, savedata, false, cb)
+        return
+    end
+
+    cb()
 end
 
 function ShardAdventureIndex:BuildPlaylist()

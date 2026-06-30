@@ -39,7 +39,7 @@ local AD_SEASON_COLOURCUBES = {
 
 
 AddComponentPostInit("colourcube", function(self, inst)
-    if ShardGameIndex.adventure:IsActive() then
+    if GLOBAL_SAVEDATA and GLOBAL_SAVEDATA.map and (GLOBAL_SAVEDATA.map.has_ocean == false) then
         self:AddSeasonColourCube(AD_SEASON_COLOURCUBES)
         self.adventure_mode = true
     end
