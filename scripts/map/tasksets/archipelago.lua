@@ -36,6 +36,7 @@ AddTaskSet("IslandHop", {
 	-- 	"TeleportatoBaseAdventureLayout",
 	-- },
 	required_prefabs = {
+		"diviningrodstart",
 		"spawnpoint_master",
 		"teleportato_ring",
 		"teleportato_box",
