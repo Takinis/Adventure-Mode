@@ -1,11 +1,12 @@
--- Patch vanilla ShardIndex lifecycle methods so Adventure Mode can keep its
--- sidecar state in sync. Gameplay-facing calls go through ShardGameIndex.adventure.
+-- Patch vanilla ShardIndex lifecycle methods so world switching can
+-- keep sidecar state in sync. Adventure Mode is one consumer of this layer.
 
 GLOBAL.setfenv(1, GLOBAL)
 
 local _ctor = ShardIndex._ctor
 function ShardIndex._ctor(self, ...)
     _ctor(self, ...)
+    self.worldindex = ShardWorldIndex(self)
     self.adventure = ShardAdventureIndex(self)
 end
 
@@ -13,7 +14,7 @@ local _Load = ShardIndex.Load
 function ShardIndex:Load(callback)
     _Load(self, function(...)
         local args = { ... }
-        self.adventure:LoadSidecar(function()
+        self.worldindex:LoadSidecar(function()
             if callback ~= nil then
                 callback(unpack(args))
             end
@@ -25,7 +26,7 @@ local _LoadShardInSlot = ShardIndex.LoadShardInSlot
 function ShardIndex:LoadShardInSlot(slot, shard, callback)
     _LoadShardInSlot(self, slot, shard, function(...)
         local args = { ... }
-        self.adventure:LoadSidecar(function()
+        self.worldindex:LoadSidecar(function()
             if callback ~= nil then
                 callback(unpack(args))
             end
@@ -36,31 +37,29 @@ end
 local _NewShardInSlot = ShardIndex.NewShardInSlot
 function ShardIndex:NewShardInSlot(slot, shard)
     _NewShardInSlot(self, slot, shard)
-    if not self.preserve_adventure_sidecar then
-        self.adventure:ClearSidecar()
+    if not self.preserve_world_switch_sidecar then
+        self.worldindex:ClearSidecar()
     end
 end
 
 local _IsEmpty = ShardIndex.IsEmpty
 function ShardIndex:IsEmpty()
-    if self.adventure ~= nil then
-        if self.adventure:NeedsGenerationOnLoad() then
-            return true
-        end
-        if self.adventure:ReservesSlot() then
-            return false
-        end
+    if self.worldindex:NeedsGenerationOnLoad() then
+        return true
+    end
+    if self.worldindex:ReservesSlot() then
+        return false
     end
     return _IsEmpty(self)
 end
 
 local _Delete = ShardIndex.Delete
 function ShardIndex:Delete(cb, save_options)
-    if self.adventure:PreservePendingGenerationOnDelete(save_options, cb) then
+    if self.worldindex:PreservePendingGenerationOnDelete(save_options, cb) then
         return
     end
 
-    self.adventure:PrepareDelete(save_options, function()
+    self.worldindex:PrepareDelete(save_options, function()
         _Delete(self, cb, save_options)
     end)
 end
@@ -71,7 +70,7 @@ function ShardIndex:SetServerShardData(customoptions, serverdata, onsavedcb)
         _SetServerShardData(self, customoptions, serverdata, onsavedcb)
     end
 
-    if not self.adventure:PrepareSetServerShardData(set_server_shard_data) then
+    if not self.worldindex:PrepareSetServerShardData(set_server_shard_data) then
         set_server_shard_data()
     end
 end
@@ -88,10 +87,10 @@ function ShardIndex:OnGenerateNewWorld(savedata, metadataStr, session_identifier
     end
     GLOBAL_SAVEDATA = world_table
 
-    self.adventure:BeforeGenerateNewWorld(savedata, session_identifier)
+    savedata, metadataStr = self.worldindex:BeforeGenerateNewWorld(savedata, metadataStr, session_identifier)
     _OnGenerateNewWorld(self, savedata, metadataStr, session_identifier, function(...)
         local args = { ... }
-        self.adventure:AfterGenerateNewWorld(savedata, session_identifier, function()
+        self.worldindex:AfterGenerateNewWorld(savedata, session_identifier, function()
             if cb ~= nil then
                 cb(unpack(args))
             end

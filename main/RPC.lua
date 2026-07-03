@@ -165,41 +165,51 @@ local function DecodeShardPayload(data)
     return type(data) == "table" and data or {}
 end
 
+local function GetShardGameWorldIndex()
+    if ShardGameIndex == nil then
+        return nil
+    end
+    return ShardGameIndex.worldindex
+end
+
 AddShardModRPCHandler("AdventureMode", "BeginSecondaryAdventure", function(_, data)
-    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
+    local worldindex = GetShardGameWorldIndex()
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil or worldindex == nil then
         return
     end
 
     local opts = DecodeShardPayload(data)
     ShardGameIndex.adventure:BeginSecondary(opts, function(success)
         if success then
-            ShardWorldIndex:RestartCurrentSlotAfterShardRPC(ShardGameIndex, { adventure_transition = "secondary_begin" })
+            worldindex:RestartCurrentSlotAfterShardRPC({ adventure_transition = "secondary_begin" })
         end
     end)
 end)
 
 AddShardModRPCHandler("AdventureMode", "AdvanceSecondaryAdventure", function(_, data)
-    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
+    local worldindex = GetShardGameWorldIndex()
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil or worldindex == nil then
         return
     end
 
     local opts = DecodeShardPayload(data)
     ShardGameIndex.adventure:AdvanceSecondary(opts, function(success)
         if success then
-            ShardWorldIndex:RestartCurrentSlotAfterShardRPC(ShardGameIndex, { adventure_transition = "secondary_advance" })
+            worldindex:RestartCurrentSlotAfterShardRPC({ adventure_transition = "secondary_advance" })
         end
     end)
 end)
 
 AddShardModRPCHandler("AdventureMode", "ReturnSecondaryAdventure", function(_, data)
-    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
+    local worldindex = GetShardGameWorldIndex()
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil or worldindex == nil then
         return
     end
 
     local opts = DecodeShardPayload(data)
     ShardGameIndex.adventure:ReturnToMainWorld(opts.reason or "return", function(success)
         if success then
-            ShardWorldIndex:RestartCurrentSlotAfterShardRPC(ShardGameIndex, { adventure_transition = opts.reason or "secondary_return" })
+            worldindex:RestartCurrentSlotAfterShardRPC({ adventure_transition = opts.reason or "secondary_return" })
         end
     end)
 end)

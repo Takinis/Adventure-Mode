@@ -1,6 +1,6 @@
 -- Adventure state manager for ShardIndex.
--- ShardIndex patching stays in postinit/shardindex.lua; this class owns the
--- adventure sidecar, chapter transitions, player sessions, and shard sync flow.
+-- Generic world switching lives in ShardWorldIndex; this class owns chapter
+-- rules, adventure player sessions, and shard sync flow.
 
 GLOBAL.setfenv(1, GLOBAL)
 
@@ -10,359 +10,26 @@ ShardAdventureIndex = Class(function(self, index)
     self.index = index
 end)
 
-local ADVENTURE_INDEX_FILE = "adventure"
 local ADVENTURE_DEATH_CHECK_POLL_INTERVAL = 0.25
 local ADVENTURE_DEATH_CHECK_INITIAL_DELAY = 0.1
+local ADVENTURE_WORLD_SWITCH_FILE_ID = "adventure"
 
 local function NOOP()
     ShardWorldIndex:Noop()
 end
 
-local function get_sidecar_filename(index)
-    return index:GetShardIndexName().."_"..ADVENTURE_INDEX_FILE
-end
-
 local function read_sidecar(index, cb)
     cb = cb or NOOP
-
-    local filename = get_sidecar_filename(index)
-    local slot, shard = ShardWorldIndex:GetSlotAndShard(index)
-    local function onload(load_success, str)
-        if load_success and str ~= nil and #str > 0 then
-            local success, data = RunInSandboxSafe(str)
-            if success and type(data) == "table" then
-                cb(data)
-                return
-            end
-            print("[Adventure Mode] Failed to parse "..filename)
-        end
-        cb(nil)
-    end
-
-    if slot ~= nil and shard ~= nil then
-        TheSim:GetPersistentStringInClusterSlot(slot, shard, filename, onload)
-    else
-        TheSim:GetPersistentString(filename, onload)
-    end
+    index.worldindex:ReadSidecar(cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
 end
 
 local function write_sidecar(index, data, cb)
     cb = cb or NOOP
-
-    local filename = get_sidecar_filename(index)
-    local slot, shard = ShardWorldIndex:GetSlotAndShard(index)
-    if data == nil then
-        if slot ~= nil and shard ~= nil then
-            -- Cluster-slot saves do not expose a Lua erase API; empty data is treated as cleared.
-            TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, "", false, cb)
-        elseif ErasePersistentString ~= nil then
-            ErasePersistentString(filename, cb)
-        else
-            TheSim:SetPersistentString(filename, "", false, cb)
-        end
-        return
-    end
-
-    local str = DataDumper(data, nil, false)
-    if slot ~= nil and shard ~= nil then
-        TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, str, false, cb)
-    else
-        TheSim:SetPersistentString(filename, str, false, cb)
-    end
+    index.worldindex:WriteSidecar(data, cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
 end
 
 local set_adventure_state
-
-local function clear_adventure_sidecar(index, cb)
-    set_adventure_state(index, nil)
-    write_sidecar(index, nil, cb)
-end
-
-local function is_adventure_transition_restart()
-    return Settings ~= nil and
-        Settings.reset_action == RESET_ACTION.LOAD_SLOT and
-        Settings.adventure_transition ~= nil
-end
-
-local function is_adventure_load_slot()
-    return Settings ~= nil and Settings.reset_action == RESET_ACTION.LOAD_SLOT
-end
-
-local function is_pending_adventure_generation_state(state)
-    return state ~= nil and
-        state.active == true and
-        state.main ~= nil and
-        state.main.session_id ~= nil and
-        state.main.session_id ~= "" and
-        (type(state.pending_generation) == "table" or
-        ((state.current_session_id == nil or state.current_session_id == "") and state.current_preset ~= nil))
-end
-
-local function should_preserve_pending_adventure_generation(state)
-    return is_adventure_transition_restart() or
-        (is_adventure_load_slot() and is_pending_adventure_generation_state(state))
-end
-
-local function clear_interrupted_adventure_transition(index, cb)
-    cb = cb or NOOP
-
-    clear_adventure_sidecar(index, function()
-        ShardWorldIndex:RestoreWorldgenOverride(index, nil, cb)
-    end)
-end
-
-local function prepare_interrupted_adventure_regen(index)
-    index.world = { options = {} }
-    index.server = {}
-    index.enabled_mods = {}
-    index.session_id = nil
-    index:MarkDirty()
-end
-
-local function adventure_state_has_origin(state)
-    return state ~= nil and (state.slot ~= nil or state.shard ~= nil)
-end
-
-local function adventure_state_matches_index(index, state)
-    if state == nil then
-        return false
-    end
-    if state.slot ~= nil and state.slot ~= index:GetSlot() then
-        return false
-    end
-    return state.shard == nil or state.shard == ShardWorldIndex:GetIndexShard(index)
-end
-
-local function finish_interrupted_return_to_main(index, state, cb)
-    cb = cb or NOOP
-
-    if state.main == nil or state.main.session_id == nil or state.main.session_id == "" then
-        clear_adventure_sidecar(index, cb)
-        return
-    end
-
-    state.active = false
-    state.finished_at = state.finished_at or os.time()
-    state.return_reason = state.return_reason or "interrupted_return"
-
-    ShardWorldIndex:SwitchIndexToExistingWorld(index, state.main)
-
-    ShardWorldIndex:RestoreWorldgenOverride(index, state.main.worldgenoverride, function()
-        index:Save(function()
-            write_sidecar(index, state, function()
-                set_adventure_state(index, state)
-                cb()
-            end)
-        end)
-    end)
-end
-
-local function apply_pending_adventure_generation_state(state)
-    local pending = type(state.pending_generation) == "table" and state.pending_generation or nil
-    if pending == nil then
-        return
-    end
-
-    state.reason = pending.reason or state.reason
-    state.chapter = pending.chapter or state.chapter
-    state.current_preset = pending.current_preset or state.current_preset
-    state.current_session_id = nil
-    state.player_sessions = ShardWorldIndex:DeepCopy(pending.player_sessions)
-    state.adventure_player_sessions = ShardWorldIndex:DeepCopy(pending.adventure_player_sessions)
-    state.first_chapter_start_inv_pending = pending.first_chapter_start_inv_pending == true
-    state.cleanup_session_id = pending.cleanup_session_id
-    state.pending_generation = nil
-    state.updated_at = os.time()
-end
-
-local function has_pending_player_sessions(state)
-    return type(state.player_sessions) == "table" and #state.player_sessions > 0
-end
-
-local function needs_generation_postprocess(state, session_identifier)
-    return state ~= nil and
-        state.active == true and
-        state.current_session_id == session_identifier and
-        ((has_pending_player_sessions(state) and state.last_player_session_injected ~= session_identifier) or
-        (state.cleanup_session_id ~= nil and state.cleanup_session_id ~= ""))
-end
-
-local function is_generation_saved_without_sidecar(state, session_identifier)
-    return is_pending_adventure_generation_state(state) and
-        session_identifier ~= nil and
-        session_identifier ~= "" and
-        state.main ~= nil and
-        session_identifier ~= state.main.session_id and
-        session_identifier ~= state.current_session_id
-end
-
-local function finish_generated_adventure_world(index, state, session_identifier, savedata, use_existing_world, cb)
-    cb = cb or NOOP
-
-    if state == nil or not state.active then
-        cb()
-        return
-    end
-
-    if state.main == nil or state.main.session_id == nil or state.main.session_id == "" then
-        print("[Adventure Mode] Clearing adventure sidecar without a stashed main world.")
-        clear_adventure_sidecar(index, cb)
-        return
-    end
-
-    if session_identifier == nil or session_identifier == "" then
-        cb()
-        return
-    end
-
-    state.current_session_id = session_identifier
-    state.updated_at = os.time()
-    set_adventure_state(index, state)
-
-    local can_process_sessions = TheNet ~= nil and TheNet:GetIsServer()
-    local should_inject_players = can_process_sessions and
-        has_pending_player_sessions(state) and
-        state.last_player_session_injected ~= session_identifier
-    local cleanup_session_id = state.cleanup_session_id
-
-    local function save_state()
-        local has_cleanup_session = cleanup_session_id ~= nil and cleanup_session_id ~= ""
-        local should_cleanup_session = can_process_sessions and
-            has_cleanup_session and
-            cleanup_session_id ~= state.main.session_id
-
-        if not has_cleanup_session or cleanup_session_id == state.main.session_id then
-            state.cleanup_session_id = nil
-            write_sidecar(index, state, cb)
-            return
-        end
-
-        if not should_cleanup_session then
-            write_sidecar(index, state, cb)
-            return
-        end
-
-        write_sidecar(index, state, function()
-            ShardWorldIndex:DeleteSessionIfNotHome(cleanup_session_id, state.main.session_id)
-            state.cleanup_session_id = nil
-            write_sidecar(index, state, cb)
-        end)
-    end
-
-    if should_inject_players then
-        local function on_players_injected()
-            state.player_sessions = nil
-            state.last_player_session_injected = session_identifier
-            save_state()
-        end
-
-        if use_existing_world then
-            ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, session_identifier, state.player_sessions, on_players_injected)
-        else
-            ShardWorldIndex:InjectPlayerSessionsIntoWorld(index, state.player_sessions, session_identifier, savedata, on_players_injected)
-        end
-        return
-    end
-
-    save_state()
-end
-
-local function load_adventure_sidecar_state(index, state, cb)
-    cb = cb or NOOP
-
-    if state == nil or not state.active then
-        set_adventure_state(index, state)
-        cb()
-        return
-    end
-
-    if adventure_state_has_origin(state) and not adventure_state_matches_index(index, state) then
-        print("[Adventure Mode] Clearing adventure sidecar from another slot or shard.")
-        clear_adventure_sidecar(index, cb)
-        return
-    end
-
-    local session_id = index:GetSession()
-    if session_id ~= nil and session_id ~= "" and is_generation_saved_without_sidecar(state, session_id) then
-        ShardWorldIndex:WorldSessionExists(index, session_id, function(exists)
-            if exists then
-                print("[Adventure Mode] Finishing interrupted adventure world generation.")
-                apply_pending_adventure_generation_state(state)
-                finish_generated_adventure_world(index, state, session_id, nil, true, cb)
-            else
-                print("[Adventure Mode] Generated adventure session is missing; returning to stashed main world.")
-                finish_interrupted_return_to_main(index, state, cb)
-            end
-        end)
-        return
-    end
-
-    if is_adventure_transition_restart() then
-        set_adventure_state(index, state)
-        cb()
-        return
-    end
-
-    if session_id == nil or session_id == "" then
-        if is_pending_adventure_generation_state(state) then
-            print("[Adventure Mode] Resuming interrupted adventure world generation.")
-            apply_pending_adventure_generation_state(state)
-            set_adventure_state(index, state)
-            cb()
-            return
-        end
-
-        if adventure_state_matches_index(index, state) then
-            print("[Adventure Mode] Restoring main world after interrupted adventure transition.")
-            finish_interrupted_return_to_main(index, state, cb)
-        else
-            print("[Adventure Mode] Clearing interrupted adventure transition before regenerating the slot.")
-            prepare_interrupted_adventure_regen(index)
-            clear_interrupted_adventure_transition(index, cb)
-        end
-        return
-    end
-
-    if type(state.pending_generation) == "table" then
-        ShardWorldIndex:WorldSessionExists(index, session_id, function(exists)
-            if exists then
-                set_adventure_state(index, state)
-                cb()
-            else
-                print("[Adventure Mode] Current adventure session is missing; returning to stashed main world.")
-                finish_interrupted_return_to_main(index, state, cb)
-            end
-        end)
-        return
-    end
-
-    if state.current_session_id == session_id then
-        ShardWorldIndex:WorldSessionExists(index, session_id, function(exists)
-            if exists then
-                if needs_generation_postprocess(state, session_id) then
-                    print("[Adventure Mode] Finishing pending adventure world postprocess.")
-                    finish_generated_adventure_world(index, state, session_id, nil, true, cb)
-                else
-                    set_adventure_state(index, state)
-                    cb()
-                end
-            else
-                print("[Adventure Mode] Current adventure session is missing; returning to stashed main world.")
-                finish_interrupted_return_to_main(index, state, cb)
-            end
-        end)
-        return
-    end
-
-    if state.main ~= nil and state.main.session_id == session_id then
-        print("[Adventure Mode] Finishing interrupted return to main world.")
-        finish_interrupted_return_to_main(index, state, cb)
-        return
-    end
-
-    print("[Adventure Mode] Clearing stale adventure sidecar for unrelated session.")
-    clear_adventure_sidecar(index, cb)
-end
+local get_adventure_state
 
 local player_starting_inventory = {}
 
@@ -406,26 +73,7 @@ local function inject_late_joiners_into_main_world(index, state, cb)
         return
     end
 
-    ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, state.main.session_id, sessions, cb)
-end
-
-local function get_adventure_state(index)
-    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.net ~= nil and
-        TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
-        local state = TheWorld.net.components.adventurestate:GetState()
-        if state ~= nil then
-            return state
-        end
-    end
-
-    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.topology ~= nil then
-        local state = TheWorld.topology.adventure_state
-        if state ~= nil then
-            return state
-        end
-    end
-
-    return index.adventure_state
+    index.worldindex:InjectPlayerSessionsIntoExistingWorld(state.main.session_id, sessions, cb)
 end
 
 local function cache_adventure_player_session(index, inst, mark_late_joiner)
@@ -515,7 +163,7 @@ local function send_master_adventure_rpc(name, data)
     ShardWorldIndex:SendRPCToMasterShard("AdventureMode", name, data)
 end
 
-function give_adventure_first_chapter_start_inv(index, inst)
+give_adventure_first_chapter_start_inv = function(index, inst)
     if TheWorld == nil or not TheWorld.ismastersim or index == nil then
         return
     end
@@ -550,7 +198,9 @@ function give_adventure_first_chapter_start_inv(index, inst)
 end
 
 local function restart_current_slot_after_shard_rpc(index, extra_params)
-    ShardWorldIndex:RestartCurrentSlotAfterShardRPC(index, extra_params)
+    extra_params = extra_params or {}
+    extra_params.world_switch_file_id = ADVENTURE_WORLD_SWITCH_FILE_ID
+    index.worldindex:RestartCurrentSlotAfterShardRPC(extra_params)
 end
 
 local adventure_death_check_task = nil
@@ -594,14 +244,6 @@ local function on_player_death(index, inst)
     end
 end
 
--- Force the adventure level's worldgenoverride. Without this, SetServerShardData
--- re-applies the MAIN world's worldgenoverride on the next boot and we generate
--- the wrong world. When both presets are supplied, GetWorldgenOverride does a
--- full override; otherwise the generated override merges onto self.world.options.
-local function write_adventure_worldgenoverride(index, level, cb)
-    ShardWorldIndex:WriteLevelWorldgenOverride(index, level, cb)
-end
-
 local function get_adventure_preset_id(preset)
     if type(preset) == "table" then
         return preset.id or preset.worldgen_preset or preset.preset or preset.settings_preset
@@ -609,28 +251,28 @@ local function get_adventure_preset_id(preset)
     return preset
 end
 
-local function BuildAdventureClientState(state)
-    if state == nil then
-        return nil
+get_adventure_state = function(index)
+    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.net ~= nil and
+        TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
+        local state = TheWorld.net.components.adventurestate:GetState()
+        if state ~= nil then
+            return state
+        end
     end
 
-    local total_chapters = type(state.level_sequence) == "table" and #state.level_sequence or nil
+    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.topology ~= nil then
+        local state = TheWorld.topology.adventure_state
+        if state ~= nil then
+            return state
+        end
+    end
 
-    return
-    {
-        active = state.active == true,
-        secondary = state.secondary == true or nil,
-        reason = state.reason,
-        sequence_id = state.sequence_id,
-        chapter = state.chapter,
-        current_preset = get_adventure_preset_id(state.current_preset),
-        current_session_id = state.current_session_id,
-        total_chapters = total_chapters,
-        started_at = state.started_at,
-        updated_at = state.updated_at,
-        finished_at = state.finished_at,
-        return_reason = state.return_reason,
-    }
+    local state = index.worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID)
+    if state ~= nil then
+        return state
+    end
+
+    return index.adventure_state
 end
 
 local function get_adventure_preset(index)
@@ -656,8 +298,10 @@ local function has_current_adventure_maxwell_intro_played(state, userid)
         played[userid] == true
 end
 
-function set_adventure_state(index, state)
+set_adventure_state = function(index, state)
     index.adventure_state = state
+
+    index.worldindex:SetState(state, ADVENTURE_WORLD_SWITCH_FILE_ID)
 
     if TheWorld ~= nil and TheWorld.ismastersim and TheWorld.net ~= nil and
         TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
@@ -791,102 +435,39 @@ function ShardAdventureIndex:RememberStartingInventory(inst)
 end
 
 function ShardAdventureIndex:LoadSidecar(cb)
-    local index = self.index
-    read_sidecar(index, function(state)
-        load_adventure_sidecar_state(index, state, cb)
-    end)
+    return self.index.worldindex:LoadSidecar(cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
 end
 
 function ShardAdventureIndex:ClearSidecar(cb)
-    clear_adventure_sidecar(self.index, cb)
+    return self.index.worldindex:ClearSidecar(cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
 end
 
 function ShardAdventureIndex:NeedsGenerationOnLoad()
-    return is_adventure_load_slot() and
-        is_pending_adventure_generation_state(get_adventure_state(self.index))
+    return self.index.worldindex:NeedsGenerationOnLoad()
 end
 
 function ShardAdventureIndex:ReservesSlot()
-    local state = get_adventure_state(self.index)
-    return state ~= nil and
-        state.active == true and
-        not is_adventure_load_slot() and
-        state.main ~= nil and
-        state.main.session_id ~= nil and
-        state.main.session_id ~= ""
+    return self.index.worldindex:ReservesSlot()
 end
 
 function ShardAdventureIndex:PreservePendingGenerationOnDelete(save_options, cb)
-    local index = self.index
-    local state = get_adventure_state(index)
-    if save_options and state ~= nil and state.active and should_preserve_pending_adventure_generation(state) then
-        index:MarkDirty()
-        index:Save(function(...)
-            local args = { ... }
-            set_adventure_state(index, state)
-            write_sidecar(index, state, function()
-                if cb ~= nil then
-                    cb(unpack(args))
-                end
-            end)
-        end)
-        return true
-    end
-
-    return false
+    return self.index.worldindex:PreservePendingGenerationOnDelete(save_options, cb)
 end
 
 function ShardAdventureIndex:PrepareDelete(save_options, cb)
-    local index = self.index
-    local state = get_adventure_state(index)
-    if save_options and state ~= nil and state.active then
-        prepare_interrupted_adventure_regen(index)
-    end
-
-    clear_adventure_sidecar(index, cb)
+    return self.index.worldindex:PrepareDelete(save_options, cb)
 end
 
 function ShardAdventureIndex:PrepareSetServerShardData(cb)
-    local index = self.index
-    local state = get_adventure_state(index)
-    if state ~= nil and state.active and not should_preserve_pending_adventure_generation(state) then
-        prepare_interrupted_adventure_regen(index)
-        clear_interrupted_adventure_transition(index, cb)
-        return true
-    end
-
-    if state ~= nil and not state.active then
-        clear_adventure_sidecar(index, cb)
-        return true
-    end
-
-    return false
+    return self.index.worldindex:PrepareSetServerShardData(cb)
 end
 
-function ShardAdventureIndex:BeforeGenerateNewWorld(savedata, session_identifier)
-    local index = self.index
-    local state = get_adventure_state(index)
-    if state ~= nil and state.active then
-        apply_pending_adventure_generation_state(state)
-        state.current_session_id = session_identifier
-        state.updated_at = os.time()
-        if savedata ~= nil and savedata.map ~= nil and savedata.map.topology ~= nil then
-            savedata.map.topology.adventure_state = BuildAdventureClientState(state)
-        end
-    end
+function ShardAdventureIndex:BeforeGenerateNewWorld(savedata, metadataStr, session_identifier)
+    return self.index.worldindex:BeforeGenerateNewWorld(savedata, metadataStr, session_identifier)
 end
 
 function ShardAdventureIndex:AfterGenerateNewWorld(savedata, session_identifier, cb)
-    cb = cb or NOOP
-
-    local index = self.index
-    local state = get_adventure_state(index)
-    if state ~= nil and state.active then
-        finish_generated_adventure_world(index, state, session_identifier, savedata, false, cb)
-        return
-    end
-
-    cb()
+    return self.index.worldindex:AfterGenerateNewWorld(savedata, session_identifier, cb)
 end
 
 function ShardAdventureIndex:BuildPlaylist()
@@ -952,6 +533,7 @@ end
 
 function ShardAdventureIndex:Begin(opts, cb)
     local index = self.index
+    local worldindex = index.worldindex
     cb = cb or NOOP
     opts = opts or {}
 
@@ -975,63 +557,60 @@ function ShardAdventureIndex:Begin(opts, cb)
         return
     end
 
-    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[1], ShardWorldIndex:GetIndexShard(index))
+    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[1], worldindex:GetIndexShard())
     local previous_state = get_adventure_state(index)
+    local main_player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
+    local state =
+    {
+        active = true,
+        kind = "adventure",
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        topology_key = "adventure_state",
+        reason = "begin",
+        sequence_id = opts.sequence_id or "default",
+        slot = index:GetSlot(),
+        shard = worldindex:GetIndexShard(),
+        started_at = os.time(),
+        updated_at = os.time(),
 
-    -- Stash the MAIN world's worldgenoverride verbatim before we overwrite it,
-    -- so AdventureReturnToMainWorld can put it back exactly as it was.
-    ShardWorldIndex:ReadWorldgenOverrideRaw(index, function(main_wgo)
-        local main_player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
-        local state =
-        {
-            active = true,
-            reason = "begin",
-            sequence_id = opts.sequence_id or "default",
-            slot = index:GetSlot(),
-            shard = ShardWorldIndex:GetIndexShard(index),
-            started_at = os.time(),
-            updated_at = os.time(),
+        level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
+        chapter = 1,
+        current_preset = first_preset,
+        current_session_id = nil,
+        player_sessions = ShardWorldIndex:GetCharacterOnlySessions(main_player_sessions),
+        participants = ShardWorldIndex:SessionsToUseridMap(main_player_sessions),
+        late_joiners = {},
+        adventure_player_sessions = {},
+        first_chapter_start_inv_pending = true,
+        first_chapter_start_inv_given = {},
+        maxwell_intro_played_chapters = {},
+        maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_state ~= nil and previous_state.maxwell_throne_puppet or nil),
+    }
 
-            level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
-            chapter = 1,
-            current_preset = first_preset,
-            current_session_id = nil,
-            player_sessions = ShardWorldIndex:GetCharacterOnlySessions(main_player_sessions),
-            participants = ShardWorldIndex:SessionsToUseridMap(main_player_sessions),
-            late_joiners = {},
-            adventure_player_sessions = {},
-            first_chapter_start_inv_pending = true,
-            first_chapter_start_inv_given = {},
-            maxwell_intro_played_chapters = {},
-            maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_state ~= nil and previous_state.maxwell_throne_puppet or nil),
-
-            main =
-            {
-                session_id = main_session,
-                worldgenoverride = main_wgo,
-                world = ShardWorldIndex:DeepCopy(index.world),
-                server = ShardWorldIndex:DeepCopy(index.server),
-                enabled_mods = ShardWorldIndex:DeepCopy(index.enabled_mods),
-                return_position = opts.return_position or ShardWorldIndex:GetReturnPosition(),
-                player_sessions = main_player_sessions,
-            },
-        }
-
-        set_adventure_state(index, state)
-        ShardWorldIndex:SwitchIndexToGeneratedWorld(index, first_preset, true)
-
-        write_adventure_worldgenoverride(index, first_preset, function()
-            write_sidecar(index, state, function()
-                index:Save(function()
-                    cb(true)
-                end)
-            end)
-        end)
+    worldindex:BeginWorldSwitch({
+        kind = "adventure",
+        reason = "begin",
+        sequence_id = state.sequence_id,
+        target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        reuse_existing = false,
+        level_sequence = level_sequence,
+        chapter = 1,
+        keep_session = true,
+        player_sessions = main_player_sessions,
+        return_position = opts.return_position,
+        state = state,
+    }, function(success)
+        if success then
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+        end
+        cb(success)
     end)
 end
 
 function ShardAdventureIndex:BeginSecondary(opts, cb)
     local index = self.index
+    local worldindex = index.worldindex
     cb = cb or NOOP
     opts = opts or {}
 
@@ -1055,48 +634,48 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         return
     end
 
-    ShardWorldIndex:ReadWorldgenOverrideRaw(index, function(home_wgo)
-        local state =
-        {
-            active = true,
-            secondary = true,
-            reason = "begin",
-            sequence_id = opts.sequence_id or "default",
-            slot = index:GetSlot(),
-            shard = ShardWorldIndex:GetIndexShard(index),
-            started_at = os.time(),
-            updated_at = os.time(),
+    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[1], worldindex:GetIndexShard())
+    local state =
+    {
+        active = true,
+        kind = "adventure",
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        topology_key = "adventure_state",
+        secondary = true,
+        reason = "begin",
+        sequence_id = opts.sequence_id or "default",
+        slot = index:GetSlot(),
+        shard = worldindex:GetIndexShard(),
+        started_at = os.time(),
+        updated_at = os.time(),
 
-            level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
-            chapter = 1,
-            current_preset = ShardWorldIndex:GetLevelForShard(level_sequence[1], ShardWorldIndex:GetIndexShard(index)),
-            current_session_id = nil,
-            player_sessions = nil,
-            adventure_player_sessions = {},
-            first_chapter_start_inv_pending = false,
-            first_chapter_start_inv_given = {},
-            maxwell_intro_played_chapters = {},
+        level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
+        chapter = 1,
+        current_preset = first_preset,
+        current_session_id = nil,
+        player_sessions = nil,
+        adventure_player_sessions = {},
+        first_chapter_start_inv_pending = false,
+        first_chapter_start_inv_given = {},
+        maxwell_intro_played_chapters = {},
+    }
 
-            main =
-            {
-                session_id = home_session,
-                worldgenoverride = home_wgo,
-                world = ShardWorldIndex:DeepCopy(index.world),
-                server = ShardWorldIndex:DeepCopy(index.server),
-                enabled_mods = ShardWorldIndex:DeepCopy(index.enabled_mods),
-            },
-        }
-
-        set_adventure_state(index, state)
-        ShardWorldIndex:SwitchIndexToGeneratedWorld(index, state.current_preset, true)
-
-        write_adventure_worldgenoverride(index, state.current_preset, function()
-            write_sidecar(index, state, function()
-                index:Save(function()
-                    cb(true)
-                end)
-            end)
-        end)
+    worldindex:BeginWorldSwitch({
+        kind = "adventure",
+        reason = "begin",
+        sequence_id = state.sequence_id,
+        target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        reuse_existing = false,
+        level_sequence = level_sequence,
+        chapter = 1,
+        keep_session = true,
+        state = state,
+    }, function(success)
+        if success then
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+        end
+        cb(success)
     end)
 end
 
@@ -1104,6 +683,7 @@ end
 -- current chapter is the last one, return to the main world instead.
 function ShardAdventureIndex:Advance(opts, cb)
     local index = self.index
+    local worldindex = index.worldindex
     if type(opts) == "function" and cb == nil then
         cb = opts
         opts = nil
@@ -1133,10 +713,10 @@ function ShardAdventureIndex:Advance(opts, cb)
         return self:ReturnToMainWorld("complete", cb)
     end
 
-    local next_preset = ShardWorldIndex:GetLevelForShard(state.level_sequence[next_chapter], ShardWorldIndex:GetIndexShard(index))
+    local next_preset = ShardWorldIndex:GetLevelForShard(state.level_sequence[next_chapter], worldindex:GetIndexShard())
     local player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
     local next_player_sessions = ShardWorldIndex:MergeSessionLists(player_sessions, state.adventure_player_sessions)
-    state.pending_generation =
+    local pending_generation =
     {
         reason = "advance",
         chapter = next_chapter,
@@ -1145,24 +725,27 @@ function ShardAdventureIndex:Advance(opts, cb)
         adventure_player_sessions = ShardWorldIndex:DeepCopy(next_player_sessions) or {},
         first_chapter_start_inv_pending = false,
         cleanup_session_id = state.current_session_id,
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
     }
-    state.updated_at = os.time()
 
-    write_sidecar(index, state, function()
-        apply_pending_adventure_generation_state(state)
-        set_adventure_state(index, state)
-        ShardWorldIndex:SwitchIndexToGeneratedWorld(index, next_preset, true)
-
-        write_adventure_worldgenoverride(index, next_preset, function()
-            index:Save(function()
-                cb(true, next_chapter)
-            end)
-        end)
+    worldindex:QueueNextWorld({
+        target = { type = "generated", level = next_preset, world_type = "adventure", cleanup_on_return = true },
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        reuse_existing = false,
+        chapter = next_chapter,
+        keep_session = true,
+        pending_generation = pending_generation,
+    }, function(success, chapter)
+        if success then
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+        end
+        cb(success, chapter)
     end)
 end
 
 function ShardAdventureIndex:AdvanceSecondary(opts, cb)
     local index = self.index
+    local worldindex = index.worldindex
     if type(opts) == "function" and cb == nil then
         cb = opts
         opts = nil
@@ -1182,8 +765,8 @@ function ShardAdventureIndex:AdvanceSecondary(opts, cb)
         return self:ReturnToMainWorld("complete", cb)
     end
 
-    local next_preset = ShardWorldIndex:GetLevelForShard(state.level_sequence[next_chapter], ShardWorldIndex:GetIndexShard(index))
-    state.pending_generation =
+    local next_preset = ShardWorldIndex:GetLevelForShard(state.level_sequence[next_chapter], worldindex:GetIndexShard())
+    local pending_generation =
     {
         reason = "advance",
         chapter = next_chapter,
@@ -1192,19 +775,21 @@ function ShardAdventureIndex:AdvanceSecondary(opts, cb)
         adventure_player_sessions = nil,
         first_chapter_start_inv_pending = false,
         cleanup_session_id = state.current_session_id,
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
     }
-    state.updated_at = os.time()
 
-    write_sidecar(index, state, function()
-        apply_pending_adventure_generation_state(state)
-        set_adventure_state(index, state)
-        ShardWorldIndex:SwitchIndexToGeneratedWorld(index, next_preset, true)
-
-        write_adventure_worldgenoverride(index, next_preset, function()
-            index:Save(function()
-                cb(true, next_chapter)
-            end)
-        end)
+    worldindex:QueueNextWorld({
+        target = { type = "generated", level = next_preset, world_type = "adventure", cleanup_on_return = true },
+        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        reuse_existing = false,
+        chapter = next_chapter,
+        keep_session = true,
+        pending_generation = pending_generation,
+    }, function(success, chapter)
+        if success then
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+        end
+        cb(success, chapter)
     end)
 end
 
@@ -1214,6 +799,7 @@ end
 
 function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
     local index = self.index
+    local worldindex = index.worldindex
     cb = cb or NOOP
 
     local state = get_adventure_state(index)
@@ -1224,24 +810,12 @@ function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
     end
 
     inject_late_joiners_into_main_world(index, state, function()
-        -- Delete the adventure world we are leaving; keep the stashed main session.
-        ShardWorldIndex:DeleteSessionIfNotHome(state.current_session_id, state.main.session_id)
-
-        ShardWorldIndex:SwitchIndexToExistingWorld(index, state.main)
-        state.active = false
-        state.finished_at = os.time()
-        state.return_reason = reason or "return"
-
-        -- Restore the main world's worldgenoverride so a later main-world regen
-        -- doesn't pick up the adventure preset.
-        ShardWorldIndex:RestoreWorldgenOverride(index, state.main.worldgenoverride, function()
-            index:Save(function()
-                write_sidecar(index, state, function()
-                    set_adventure_state(index, state)
-                    cb(true)
-                end)
-            end)
-        end)
+        worldindex:ReturnToStoredWorld(reason or "return", function(success)
+            if success then
+                set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+            end
+            cb(success)
+        end, state.main.player_sessions)
     end)
 end
 
