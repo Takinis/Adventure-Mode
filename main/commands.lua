@@ -173,10 +173,81 @@ end
 
 
 local SCANLAYOUT_IGNORE_TAGS = { "locomotor", "NOCLICK", "FX", "DECOR", "placer" }
+local SCANLAYOUT_HIGHLIGHT = {0.1, 0.1, 1, 0}
 local SCANLAYOUT_CHUNK_SIZE = 3500
 local SCANLAYOUT_SAVE_SHARD = "Master"
 local scanlayout_corner = nil
 local scanlayout_tile_to_gid = nil
+local scanlayout_state = nil
+
+local SCANLAYOUT_GRID_NEIGHBORS = {
+    {dx = -1, dz =  0, dir = "s"},
+    {dx =  1, dz =  0, dir = "n"},
+    {dx =  0, dz = -1, dir = "e"},
+    {dx =  0, dz =  1, dir = "w"},
+}
+local SCANLAYOUT_GRID_OPPOSITE = { n = "s", s = "n", e = "w", w = "e" }
+
+local function UpdateScanLayoutGridArt(inst, tx, tz)
+    local placer = inst.outline_grid:GetDataAtPoint(tx, tz)
+
+    for _, n in ipairs(SCANLAYOUT_GRID_NEIGHBORS) do
+        local nplacer = inst.outline_grid:GetDataAtPoint(tx + n.dx, tz + n.dz)
+        if nplacer ~= nil then
+            if placer ~= nil then
+                placer.AnimState:Hide(n.dir)
+            else
+                nplacer.AnimState:Show(SCANLAYOUT_GRID_OPPOSITE[n.dir])
+            end
+        end
+    end
+end
+
+local function PlaceScanLayoutGrid(inst, tx, tz)
+    local index = inst.outline_grid:GetIndex(tx, tz)
+
+    if inst.outline_grid:GetDataAtIndex(index) then
+        return
+    end
+
+    local placer = SpawnPrefab("gridplacer")
+    placer.Transform:SetPosition(TheWorld.Map:GetTileCenterPoint(tx, tz))
+
+    inst.outline_grid:SetDataAtIndex(index, placer)
+    UpdateScanLayoutGridArt(inst, tx, tz)
+end
+
+local function HighlightScanLayoutGrid(inst)
+    for index in pairs(inst.outline_grid.grid) do
+        inst.outline_grid:GetDataAtIndex(index).AnimState:SetMultColour(0.5, 0.5, 1, 1)
+    end
+end
+
+local function OnRemoveScanLayoutGrid(inst)
+    for index in pairs(inst.outline_grid.grid) do
+        inst.outline_grid:GetDataAtIndex(index):Remove()
+    end
+
+    inst.outline_grid = nil
+end
+
+local function CreateScanLayoutGridOutline()
+    local inst = CreateEntity()
+
+    inst.entity:AddTransform()
+    inst.entity:SetCanSleep(false)
+
+    inst:AddTag("NOCLICK")
+    inst:AddTag("placer")
+
+    inst.persists = false
+    inst.outline_grid = DataGrid(TheWorld.Map:GetSize())
+    inst.OnRemoveEntity = OnRemoveScanLayoutGrid
+    inst.PlaceGrid = PlaceScanLayoutGrid
+    inst.Highlight = HighlightScanLayoutGrid
+
+    return inst
+end
 
 local function GetScanLayoutTileToGid()
     if scanlayout_tile_to_gid == nil then
@@ -258,6 +329,84 @@ local function CollectScanLayoutEntities(bounds)
     end
 
     return entities
+end
+
+local function UnhighlightScanLayoutEntities(state)
+    if state.highlighted == nil then
+        return
+    end
+
+    for _, ent in pairs(state.highlighted) do
+        if ent:IsValid() and ent.AnimState ~= nil then
+            ent.AnimState:SetAddColour(0, 0, 0, 0)
+        end
+    end
+
+    state.highlighted = {}
+end
+
+local function HighlightScanLayoutArea(state)
+    UnhighlightScanLayoutEntities(state)
+
+    if state.bounds == nil then
+        return
+    end
+
+    state.highlighted = {}
+    for _, ent in ipairs(CollectScanLayoutEntities(state.bounds)) do
+        state.highlighted[ent.GUID] = ent
+        if ent.AnimState ~= nil then
+            ent.AnimState:SetAddColour(unpack(SCANLAYOUT_HIGHLIGHT))
+        end
+    end
+end
+
+local function RebuildScanLayoutOutline(state, min_tx, min_tz, max_tx, max_tz, highlight)
+    if state.outline ~= nil then
+        state.outline:Remove()
+    end
+
+    state.outline = CreateScanLayoutGridOutline()
+    state.bounds = {
+        min_tx = min_tx,
+        min_tz = min_tz,
+        max_tx = max_tx,
+        max_tz = max_tz,
+        tiles_w = max_tx - min_tx + 1,
+        tiles_h = max_tz - min_tz + 1,
+    }
+
+    for x = min_tx, max_tx do
+        for z = min_tz, max_tz do
+            state.outline:PlaceGrid(x, z)
+        end
+    end
+
+    if highlight then
+        state.outline:Highlight()
+    end
+end
+
+local function GetScanLayoutSquareBounds(c1_tx, c1_tz, tx, tz)
+    local dx = tx - c1_tx
+    local dz = tz - c1_tz
+    local side = math.max(math.abs(dx), math.abs(dz))
+    local end_tx = c1_tx + side * (dx >= 0 and 1 or -1)
+    local end_tz = c1_tz + side * (dz >= 0 and 1 or -1)
+
+    return math.min(c1_tx, end_tx), math.min(c1_tz, end_tz),
+        math.max(c1_tx, end_tx), math.max(c1_tz, end_tz)
+end
+
+local function StopScanLayoutHandlers(state)
+    if state.update_task ~= nil then
+        state.update_task:Cancel()
+        state.update_task = nil
+    end
+
+    if ThePlayer ~= nil and ThePlayer.components.playeractionpicker ~= nil then
+        ThePlayer.components.playeractionpicker.rightclickoverride = state.previous_rightclickoverride
+    end
 end
 
 local function GetScanLayoutObjectProperties(ent)
@@ -480,6 +629,251 @@ local function ExportScanLayout(filename, bounds, print_to_log)
     end
 
     return save_path, lua_src
+end
+
+local function ShowScanLayoutExportPopup()
+    local Screen = require "widgets/screen"
+    local Widget = require "widgets/widget"
+    local Image = require "widgets/image"
+    local TextEdit = require "widgets/textedit"
+    local Text = require "widgets/text"
+    local TEMPLATES = require "widgets/redux/templates"
+
+    local PANEL_W = 480
+    local PANEL_H = 230
+
+    local ScanLayoutExportScreen = Class(Screen, function(self)
+        Screen._ctor(self, "ScanLayoutExportScreen")
+
+        self.black = self:AddChild(Image("images/global.xml", "square.tex"))
+        self.black:SetVRegPoint(ANCHOR_MIDDLE)
+        self.black:SetHRegPoint(ANCHOR_MIDDLE)
+        self.black:SetVAnchor(ANCHOR_MIDDLE)
+        self.black:SetHAnchor(ANCHOR_MIDDLE)
+        self.black:SetScaleMode(SCALEMODE_FILLSCREEN)
+        self.black:SetTint(0, 0, 0, .75)
+
+        self.proot = self:AddChild(Widget("ROOT"))
+        self.proot:SetVAnchor(ANCHOR_MIDDLE)
+        self.proot:SetHAnchor(ANCHOR_MIDDLE)
+        self.proot:SetPosition(0, 0, 0)
+        self.proot:SetScaleMode(SCALEMODE_PROPORTIONAL)
+
+        self.bg = self.proot:AddChild(Image(CRAFTING_ATLAS, "backing.tex"))
+        self.bg:SetVRegPoint(ANCHOR_MIDDLE)
+        self.bg:SetHRegPoint(ANCHOR_MIDDLE)
+        self.bg:ScaleToSize(PANEL_W, PANEL_H)
+        self.bg:SetTint(1, 1, 1, 0.95)
+
+        self.border_top = self.proot:AddChild(Image(CRAFTING_ATLAS, "top.tex"))
+        self.border_top:SetPosition(0, PANEL_H / 2, 0)
+        self.border_top:ScaleToSize(PANEL_W + 6, 10)
+
+        self.border_bottom = self.proot:AddChild(Image(CRAFTING_ATLAS, "bottom.tex"))
+        self.border_bottom:SetPosition(0, -PANEL_H / 2, 0)
+        self.border_bottom:ScaleToSize(PANEL_W + 6, 10)
+
+        self.border_left = self.proot:AddChild(Image(CRAFTING_ATLAS, "side.tex"))
+        self.border_left:SetPosition(-PANEL_W / 2, 0, 0)
+        self.border_left:ScaleToSize(6, PANEL_H)
+
+        self.border_right = self.proot:AddChild(Image(CRAFTING_ATLAS, "side.tex"))
+        self.border_right:SetPosition(PANEL_W / 2, 0, 0)
+        self.border_right:ScaleToSize(6, PANEL_H)
+
+        self.divider = self.proot:AddChild(Image(CRAFTING_ATLAS, "horizontal_bar.tex"))
+        self.divider:SetPosition(0, 52, 0)
+        self.divider:ScaleToSize(PANEL_W - 20, 3)
+        self.divider:SetTint(1, 1, 1, 0.5)
+
+        self.title = self.proot:AddChild(Text(CHATFONT, 38))
+        self.title:SetPosition(0, 75, 0)
+        self.title:SetColour(215/255, 210/255, 157/255, 1)
+        self.title:SetString("Export Selection")
+
+        local slot = GetScanLayoutSaveSlot()
+        local path = slot ~= nil and ("Cluster_"..tostring(slot).."/"..SCANLAYOUT_SAVE_SHARD.."/") or "persistent://"
+        self.path_label = self.proot:AddChild(Text(CHATFONT, 18))
+        self.path_label:SetPosition(0, 38, 0)
+        self.path_label:SetColour(0.6, 0.6, 0.5, 1)
+        self.path_label:SetString("Saving to: " .. path)
+
+        local edit_width = 380
+        local edit_height = 40
+
+        self.edit_bg = self.proot:AddChild(Image("images/global_redux.xml", "textbox3_gold_normal.tex"))
+        self.edit_bg:SetPosition(0, -5, 0)
+        self.edit_bg:ScaleToSize(edit_width + 20, edit_height)
+
+        self.name_edit = self.proot:AddChild(TextEdit(CHATFONT, 22, "", {.1, .1, .1, 1}))
+        self.name_edit:SetPosition(0, -5, 0)
+        self.name_edit:SetRegionSize(edit_width - 10, edit_height)
+        self.name_edit:SetHAlign(ANCHOR_LEFT)
+        self.name_edit:SetFocusedImage(self.edit_bg, "images/global_redux.xml", "textbox3_gold_normal.tex", "textbox3_gold_hover.tex", "textbox3_gold_focus.tex")
+        self.name_edit:SetTextLengthLimit(128)
+        self.name_edit:SetIdleTextColour(.1, .1, .1, 1)
+        self.name_edit:SetEditTextColour(.1, .1, .1, 1)
+        self.name_edit:SetForceEdit(true)
+        self.name_edit:SetString("")
+        self.name_edit.OnTextEntered = function() self:DoExport() end
+
+        local btn_w, btn_h = 170, 45
+
+        self.save_btn = self.proot:AddChild(TEMPLATES.StandardButton(function() self:DoExport() end, "Save", {btn_w, btn_h}))
+        self.save_btn:SetPosition(-95, -60, 0)
+
+        self.cancel_btn = self.proot:AddChild(TEMPLATES.StandardButton(function() self:Close() end, "Cancel", {btn_w, btn_h}))
+        self.cancel_btn:SetPosition(95, -60, 0)
+
+        self.default_focus = self.name_edit
+    end)
+
+    function ScanLayoutExportScreen:OnBecomeActive()
+        ScanLayoutExportScreen._base.OnBecomeActive(self)
+        self.name_edit:SetFocus()
+        self.name_edit:SetEditing(true)
+    end
+
+    function ScanLayoutExportScreen:OnRawKey(key, down)
+        if ScanLayoutExportScreen._base.OnRawKey(self, key, down) then
+            return true
+        end
+        return false
+    end
+
+    function ScanLayoutExportScreen:OnControl(control, down)
+        if ScanLayoutExportScreen._base.OnControl(self, control, down) then
+            return true
+        end
+        if control == CONTROL_CANCEL and not down then
+            self:Close()
+            return true
+        end
+    end
+
+    function ScanLayoutExportScreen:DoExport()
+        local filename = self.name_edit:GetString()
+        ExportScanLayout(filename ~= "" and filename or nil, scanlayout_state ~= nil and scanlayout_state.bounds or nil)
+        self:Close()
+    end
+
+    function ScanLayoutExportScreen:Close()
+        TheInput:EnableDebugToggle(true)
+        c_scanlayout_clear()
+        TheFrontEnd:PopScreen(self)
+    end
+
+    TheInput:EnableDebugToggle(false)
+    TheFrontEnd:PushScreen(ScanLayoutExportScreen())
+end
+
+function c_scanlayout_clear()
+    if scanlayout_state == nil then
+        return
+    end
+
+    StopScanLayoutHandlers(scanlayout_state)
+    UnhighlightScanLayoutEntities(scanlayout_state)
+
+    if scanlayout_state.outline ~= nil then
+        scanlayout_state.outline:Remove()
+    end
+
+    scanlayout_state = nil
+end
+
+function c_scanlayout()
+    if scanlayout_state ~= nil and not scanlayout_state.done then
+        c_scanlayout_clear()
+        print("[Adventure Mode] ScanLayout cancelled.")
+        return false
+    end
+
+    if ThePlayer == nil or ThePlayer.components.playeractionpicker == nil then
+        print("[Adventure Mode] ScanLayout needs a local player.")
+        return false
+    end
+
+    c_scanlayout_clear()
+
+    local state = {
+        phase = "pick_first",
+        corner1 = nil,
+        last_tx = nil,
+        last_tz = nil,
+        outline = nil,
+        bounds = nil,
+        highlighted = {},
+        done = false,
+    }
+    scanlayout_state = state
+
+    local map = TheWorld.Map
+    state.update_task = TheWorld:DoPeriodicTask(0, function()
+        if state.done then
+            return
+        end
+
+        local tx, tz = GetScanLayoutMouseTile()
+        if tx == nil or (tx == state.last_tx and tz == state.last_tz) then
+            return
+        end
+        state.last_tx, state.last_tz = tx, tz
+
+        if state.phase == "pick_first" then
+            RebuildScanLayoutOutline(state, tx, tz, tx, tz)
+        elseif state.phase == "pick_second" then
+            local c1 = state.corner1
+            local min_tx, min_tz, max_tx, max_tz = GetScanLayoutSquareBounds(c1.tx, c1.tz, tx, tz)
+            UnhighlightScanLayoutEntities(state)
+            RebuildScanLayoutOutline(state, min_tx, min_tz, max_tx, max_tz)
+            HighlightScanLayoutArea(state)
+        end
+    end)
+
+    local action = Action({}, 0, true)
+    action.id = "SCANLAYOUT"
+    action.instant = true
+    action.stroverridefn = function()
+        return state.phase == "pick_first" and "Start Selection" or "End Selection"
+    end
+    action.fn = function(act)
+        if state.done then
+            return true
+        end
+
+        local pos = act:GetActionPoint() or TheInput:GetWorldPosition()
+        local tx, tz = map:GetTileCoordsAtPoint(pos:Get())
+
+        if state.phase == "pick_first" then
+            state.corner1 = {tx = tx, tz = tz}
+            state.phase = "pick_second"
+        elseif state.phase == "pick_second" then
+            local c1 = state.corner1
+            local min_tx, min_tz, max_tx, max_tz = GetScanLayoutSquareBounds(c1.tx, c1.tz, tx, tz)
+
+            StopScanLayoutHandlers(state)
+            RebuildScanLayoutOutline(state, min_tx, min_tz, max_tx, max_tz, true)
+            HighlightScanLayoutArea(state)
+
+            state.done = true
+            print(string.format("[Adventure Mode] ScanLayout selected %dx%d tiles.", state.bounds.tiles_w, state.bounds.tiles_h))
+            ShowScanLayoutExportPopup()
+        end
+
+        return true
+    end
+
+    local picker = ThePlayer.components.playeractionpicker
+    state.previous_rightclickoverride = picker.rightclickoverride
+    picker.rightclickoverride = function(inst, target, position)
+        if not state.done then
+            return { BufferedAction(inst, nil, action, nil, position) }
+        end
+        return {}
+    end
+
+    return true
 end
 
 function c_scan_mark()
