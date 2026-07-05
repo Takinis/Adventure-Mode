@@ -170,3 +170,356 @@ end
 function c_frograin()
     TheWorld.components.frograin:StartFrogRain()
 end
+
+
+local SCANLAYOUT_IGNORE_TAGS = { "locomotor", "NOCLICK", "FX", "DECOR", "placer" }
+local SCANLAYOUT_CHUNK_SIZE = 3500
+local SCANLAYOUT_SAVE_SHARD = "Master"
+local scanlayout_corner = nil
+local scanlayout_tile_to_gid = nil
+
+local function GetScanLayoutTileToGid()
+    if scanlayout_tile_to_gid == nil then
+        scanlayout_tile_to_gid = {}
+
+        local ground_types = require("map/static_layout").GROUND_TYPES
+        for gid, tile_id in ipairs(ground_types) do
+            if tile_id ~= nil then
+                scanlayout_tile_to_gid[tile_id] = gid
+            end
+        end
+    end
+
+    return scanlayout_tile_to_gid
+end
+
+local function GetScanLayoutMouseTile()
+    if TheInput == nil or TheWorld == nil or TheWorld.Map == nil then
+        return nil
+    end
+
+    local pos = TheInput:GetWorldPosition()
+    if pos == nil then
+        return nil
+    end
+
+    local tx, tz = TheWorld.Map:GetTileCoordsAtPoint(pos:Get())
+    return tx, tz
+end
+
+local function GetScanLayoutPlayerTile()
+    local player = ConsoleCommandPlayer()
+    if player == nil or player.Transform == nil then
+        return nil
+    end
+
+    local x, y, z = player.Transform:GetWorldPosition()
+    local tx, tz = TheWorld.Map:GetTileCoordsAtPoint(x, y, z)
+    return tx, tz
+end
+
+local function GetScanLayoutBounds(tx1, tz1, tx2, tz2)
+    if tx1 == nil or tz1 == nil or tx2 == nil or tz2 == nil then
+        return nil
+    end
+
+    return {
+        min_tx = math.min(tx1, tx2),
+        min_tz = math.min(tz1, tz2),
+        max_tx = math.max(tx1, tx2),
+        max_tz = math.max(tz1, tz2),
+    }
+end
+
+local function IsScanLayoutEntityScannable(ent, player)
+    return ent.prefab ~= nil
+        and ent.Transform ~= nil
+        and ent ~= player
+        and ent.HasAnyTag ~= nil
+        and not ent:HasAnyTag(SCANLAYOUT_IGNORE_TAGS)
+end
+
+local function CollectScanLayoutEntities(bounds)
+    local map = TheWorld.Map
+    local player = ConsoleCommandPlayer()
+    local seen = {}
+    local entities = {}
+
+    for gx = bounds.min_tx, bounds.max_tx do
+        for gz = bounds.min_tz, bounds.max_tz do
+            local cx, _, cz = map:GetTileCenterPoint(gx, gz)
+            for _, ent in ipairs(map:GetEntitiesOnTileAtPoint(cx, 0, cz)) do
+                if not seen[ent.GUID] and IsScanLayoutEntityScannable(ent, player) then
+                    seen[ent.GUID] = true
+                    entities[#entities + 1] = ent
+                end
+            end
+        end
+    end
+
+    return entities
+end
+
+local function GetScanLayoutObjectProperties(ent)
+    local savedrotation = ent.components ~= nil
+        and ent.components.savedrotation ~= nil
+        and ent.components.savedrotation:OnSave()
+        or nil
+
+    return savedrotation ~= nil and { data = { savedrotation = savedrotation } } or {}
+end
+
+local function BuildScanLayoutData(bounds)
+    local map = TheWorld.Map
+    local tilefactor = TILE_SCALE
+    local tile_to_gid = GetScanLayoutTileToGid()
+    local tiles_w = bounds.max_tx - bounds.min_tx + 1
+    local tiles_h = bounds.max_tz - bounds.min_tz + 1
+    local tmx_w = tiles_w * tilefactor
+    local tmx_h = tiles_h * tilefactor
+    local tile_data = {}
+
+    for i = 1, tmx_w * tmx_h do
+        tile_data[i] = 0
+    end
+
+    for row = 0, tiles_h - 1 do
+        for col = 0, tiles_w - 1 do
+            local tile_type = map:GetTile(bounds.min_tx + col, bounds.min_tz + row)
+            local gid = tile_to_gid[tile_type] or 0
+            local tmx_row = row * tilefactor + (tilefactor - 1)
+            local tmx_col = col * tilefactor
+            tile_data[tmx_row * tmx_w + tmx_col + 1] = gid
+        end
+    end
+
+    local left_wx, _, left_wz = map:GetTileCenterPoint(bounds.min_tx, bounds.min_tz)
+    local right_wx, _, right_wz = map:GetTileCenterPoint(bounds.max_tx, bounds.max_tz)
+    local center_x = (left_wx + right_wx) / 2
+    local center_z = (left_wz + right_wz) / 2
+    local tmx_center_px = tmx_w * 16 / 2
+    local tmx_center_py = tmx_h * 16 / 2
+    local objects = {}
+
+    for _, ent in ipairs(CollectScanLayoutEntities(bounds)) do
+        local wx, _, wz = ent.Transform:GetWorldPosition()
+        objects[#objects + 1] = {
+            name = "",
+            type = ent.prefab,
+            shape = "rectangle",
+            x = math.floor((wx - center_x) / TILE_SCALE * 64 + tmx_center_px + 0.5),
+            y = math.floor((wz - center_z) / TILE_SCALE * 64 + tmx_center_py + 0.5),
+            width = 0,
+            height = 0,
+            visible = true,
+            properties = GetScanLayoutObjectProperties(ent),
+        }
+    end
+
+    return tmx_w, tmx_h, tile_data, objects
+end
+
+local function StripScanLayoutReturnPrefix(str)
+    return string.gsub(str, "^return%s+", "", 1)
+end
+
+local function IndentScanLayoutString(str, indent)
+    local lines = {}
+
+    for line in string.gmatch(str.."\n", "(.-)\n") do
+        lines[#lines + 1] = indent..line
+    end
+
+    return table.concat(lines, "\n")
+end
+
+local function DumpScanLayoutTable(value)
+    return StripScanLayoutReturnPrefix(DataDumper(value, nil, false))
+end
+
+local function AppendScanLayoutTileData(lines, tmx_w, tmx_h, tile_data)
+    lines[#lines + 1] = "                data = {"
+    for row = 0, tmx_h - 1 do
+        local row_values = {}
+        for col = 0, tmx_w - 1 do
+            row_values[#row_values + 1] = tostring(tile_data[row * tmx_w + col + 1] or 0)
+        end
+        lines[#lines + 1] = "                    "..table.concat(row_values, ", ")..","
+    end
+    lines[#lines + 1] = "                },"
+end
+
+local function AppendScanLayoutObjects(lines, objects)
+    lines[#lines + 1] = "                objects = {"
+    for _, obj in ipairs(objects) do
+        lines[#lines + 1] = IndentScanLayoutString(DumpScanLayoutTable(obj), "                    ")..","
+    end
+    lines[#lines + 1] = "                },"
+end
+
+local function BuildScanLayoutLua(tmx_w, tmx_h, tile_data, objects)
+    local lines = {
+        "return {",
+        '    version = "1.1",',
+        '    luaversion = "5.1",',
+        '    orientation = "orthogonal",',
+        "    width = "..tostring(tmx_w)..",",
+        "    height = "..tostring(tmx_h)..",",
+        "    tilewidth = 16,",
+        "    tileheight = 16,",
+        "    properties = {},",
+        "    tilesets = {",
+        "        {",
+        '            name = "tiles",',
+        "            firstgid = 1,",
+        "            tilewidth = 64,",
+        "            tileheight = 64,",
+        "            spacing = 0,",
+        "            margin = 0,",
+        '            image = "../../../../tools/tiled/dont_starve/tiles.png",',
+        "            imagewidth = 512,",
+        "            imageheight = 1024,",
+        "            properties = {},",
+        "            tiles = {},",
+        "        },",
+        "    },",
+        "    layers = {",
+        "        {",
+        '            type = "tilelayer",',
+        '            name = "BG_TILES",',
+        "            x = 0,",
+        "            y = 0,",
+        "            width = "..tostring(tmx_w)..",",
+        "            height = "..tostring(tmx_h)..",",
+        "            visible = true,",
+        "            opacity = 1,",
+        "            properties = {},",
+        '            encoding = "lua",',
+    }
+
+    AppendScanLayoutTileData(lines, tmx_w, tmx_h, tile_data)
+
+    lines[#lines + 1] = "        },"
+    lines[#lines + 1] = "        {"
+    lines[#lines + 1] = '            type = "objectgroup",'
+    lines[#lines + 1] = '            name = "FG_OBJECTS",'
+    lines[#lines + 1] = "            visible = true,"
+    lines[#lines + 1] = "            opacity = 1,"
+    lines[#lines + 1] = "            properties = {},"
+
+    AppendScanLayoutObjects(lines, objects)
+
+    lines[#lines + 1] = "        },"
+    lines[#lines + 1] = "    },"
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n")
+end
+
+local function GetScanLayoutSavePath(filename)
+    filename = tostring(filename or "scanlayout_export")
+    if string.sub(filename, -4) ~= ".lua" then
+        filename = filename..".lua"
+    end
+    return filename
+end
+
+local function GetScanLayoutSaveSlot()
+    if ShardGameIndex ~= nil and ShardGameIndex.GetSlot ~= nil then
+        local slot = ShardGameIndex:GetSlot()
+        if slot ~= nil then
+            return slot
+        end
+    end
+
+    if Settings ~= nil and Settings.save_slot ~= nil then
+        return Settings.save_slot
+    end
+
+    if SaveGameIndex ~= nil and SaveGameIndex.GetCurrentSaveSlot ~= nil then
+        return SaveGameIndex:GetCurrentSaveSlot()
+    end
+end
+
+local function PrintScanLayoutChunks(lua_src)
+    local index = 1
+    local count = math.ceil(#lua_src / SCANLAYOUT_CHUNK_SIZE)
+
+    print("[Adventure Mode] Static layout Lua export begin.")
+    for chunk = 1, count do
+        print(string.format("[Adventure Mode] Static layout chunk %d/%d.", chunk, count))
+        print(string.sub(lua_src, index, index + SCANLAYOUT_CHUNK_SIZE - 1))
+        index = index + SCANLAYOUT_CHUNK_SIZE
+    end
+    print("[Adventure Mode] Static layout Lua export end.")
+end
+
+local function ExportScanLayout(filename, bounds, print_to_log)
+    if bounds == nil then
+        print("[Adventure Mode] No static layout bounds.")
+        return false
+    end
+
+    local tmx_w, tmx_h, tile_data, objects = BuildScanLayoutData(bounds)
+    local lua_src = BuildScanLayoutLua(tmx_w, tmx_h, tile_data, objects)
+    local save_path = GetScanLayoutSavePath(filename)
+    local slot = GetScanLayoutSaveSlot()
+
+    if print_to_log then
+        PrintScanLayoutChunks(lua_src)
+    end
+
+    if slot ~= nil and TheSim.SetPersistentStringInClusterSlot ~= nil then
+        TheSim:SetPersistentStringInClusterSlot(slot, SCANLAYOUT_SAVE_SHARD, save_path, lua_src, false, function()
+            print("[Adventure Mode] Static layout exported to Cluster_"..tostring(slot).."/"..SCANLAYOUT_SAVE_SHARD.."/"..save_path)
+        end)
+    else
+        TheSim:SetPersistentString(save_path, lua_src, false, function()
+            print("[Adventure Mode] Static layout exported to persistent://"..save_path)
+        end)
+    end
+
+    return save_path, lua_src
+end
+
+function c_scan_mark()
+    local tx, tz = GetScanLayoutMouseTile()
+    if tx == nil then
+        print("[Adventure Mode] Move the mouse over the world before marking a scan layout corner.")
+        return false
+    end
+
+    scanlayout_corner = { tx = tx, tz = tz }
+    print("[Adventure Mode] Static layout first corner: "..tostring(tx)..", "..tostring(tz)..".")
+    return true
+end
+
+function c_scan_save(filename, print_to_log)
+    if scanlayout_corner == nil then
+        print("[Adventure Mode] Run c_scan_mark() first.")
+        return false
+    end
+
+    local tx, tz = GetScanLayoutMouseTile()
+    if tx == nil then
+        print("[Adventure Mode] Move the mouse over the world before saving the scan layout.")
+        return false
+    end
+
+    return ExportScanLayout(filename, GetScanLayoutBounds(scanlayout_corner.tx, scanlayout_corner.tz, tx, tz), print_to_log)
+end
+
+function c_scan_bounds(filename, tx1, tz1, tx2, tz2, print_to_log)
+    return ExportScanLayout(filename, GetScanLayoutBounds(tx1, tz1, tx2, tz2), print_to_log)
+end
+
+function c_scan_here(filename, radius, print_to_log)
+    local tx, tz = GetScanLayoutPlayerTile()
+    if tx == nil then
+        print("[Adventure Mode] Console command player is unavailable.")
+        return false
+    end
+
+    radius = radius or 8
+    return ExportScanLayout(filename, GetScanLayoutBounds(tx - radius, tz - radius, tx + radius, tz + radius), print_to_log)
+end
