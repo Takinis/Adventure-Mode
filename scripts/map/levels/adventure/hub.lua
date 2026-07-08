@@ -14,7 +14,10 @@ AddAdventureLevel({
 
 		day = "longdusk",
 		-- start_node = "Clearing",
-		season = "preonlysummer",
+		autumn = "noseason",
+		winter = "noseason",
+		spring = "default",
+		summer = "noseason",
 		season_start = "winter",
 		spiders = "often",
 		branching = "default",
