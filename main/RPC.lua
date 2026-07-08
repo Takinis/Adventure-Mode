@@ -241,7 +241,7 @@ AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
 
     local inst = Ents[data.guid]
     if inst == nil or not inst:IsValid() or
-        (inst.prefab ~= "adventure_portal" and inst.prefab ~= "teleportato") then
+        (inst.prefab ~= "adventure_portal" and not inst:HasTag("teleportato")) then
         return
     end
 
