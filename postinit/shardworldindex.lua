@@ -1492,6 +1492,84 @@ local function get_world_switch_target_id(target)
         target.world_type
 end
 
+local function should_regenerate_current_world_switch_session(index, state)
+    ensure_world_switch_home_aliases(state)
+
+    local home = get_world_switch_home_state(state)
+    local session_id = index ~= nil and index:GetSession() or nil
+    return state ~= nil and
+        state.active == true and
+        home ~= nil and
+        home.session_id ~= nil and
+        home.session_id ~= "" and
+        session_id ~= nil and
+        session_id ~= "" and
+        session_id ~= home.session_id and
+        state.current_session_id == session_id and
+        not is_pending_world_generation_state(state)
+end
+
+local function get_current_world_switch_regen_target(state)
+    local generated_target = normalize_world_switch_target(state.generated_target)
+    if generated_target ~= nil and generated_target.type == "generated" then
+        return generated_target
+    end
+    return normalize_world_switch_target(state.current_target or state.current_preset)
+end
+
+local function get_current_world_switch_regen_worldgenoverride(index, state)
+    if state.current_worldgenoverride ~= nil then
+        return state.current_worldgenoverride
+    end
+
+    local target = get_current_world_switch_regen_target(state)
+    local level = get_world_switch_generated_level(target, get_index_shard(index))
+    return level ~= nil and build_level_worldgenoverride_raw(level) or nil
+end
+
+local function prepare_current_world_switch_regen(index, state, cb)
+    cb = cb or noop
+    if not should_regenerate_current_world_switch_session(index, state) then
+        return false
+    end
+
+    local player_sessions = state.secondary ~= true and collect_player_sessions() or nil
+    if player_sessions ~= nil then
+        state.player_sessions = player_sessions
+        if state.kind == "adventure" then
+            state.adventure_player_sessions = merge_session_lists(player_sessions, state.adventure_player_sessions)
+        end
+    end
+
+    local target = get_current_world_switch_regen_target(state)
+    if target ~= nil and target.type == "generated" then
+        state.current_target = target
+        state.current_preset = get_world_switch_target_id(target) or state.current_preset
+    end
+
+    state.current_session_id = nil
+    state.cleanup_session_id = nil
+    state.pending_generation = nil
+    state.checked_existing_world = nil
+    state.generation_source_session_id = nil
+    state.generation_recovery_state = nil
+    state.last_player_session_injected = nil
+    state.updated_at = os.time()
+    refresh_world_switch_clock_snapshot(state)
+    set_world_switch_state(index, state)
+
+    local worldgenoverride = get_current_world_switch_regen_worldgenoverride(index, state)
+    if worldgenoverride ~= nil then
+        state.current_worldgenoverride = worldgenoverride
+        restore_worldgenoverride(index, worldgenoverride, function()
+            write_world_switch_sidecar(index, state, cb)
+        end)
+    else
+        write_world_switch_sidecar(index, state, cb)
+    end
+    return true
+end
+
 local function get_world_switch_target_file_id(target, fallback)
     target = normalize_world_switch_target(target)
     if target ~= nil then
@@ -2222,7 +2300,11 @@ end
 function ShardWorldIndex:PreservePendingGenerationOnDelete(index, save_options, cb)
     index, save_options, cb = resolve_index_args(self, index, save_options, cb)
     local state = get_world_switch_state(index)
-    if save_options and state ~= nil and state.active and should_preserve_pending_world_generation(state) then
+    if save_options and
+        state ~= nil and
+        state.active and
+        should_preserve_pending_world_generation(state) and
+        not should_regenerate_current_world_switch_session(index, state) then
         local staged_world = deepcopy_safe(index.world)
         local staged_server = deepcopy_safe(index.server)
         local staged_enabled_mods = deepcopy_safe(index.enabled_mods)
@@ -2258,6 +2340,9 @@ function ShardWorldIndex:PrepareDelete(index, save_options, cb)
     index, save_options, cb = resolve_index_args(self, index, save_options, cb)
     local state = get_world_switch_state(index)
     if save_options and state ~= nil and state.active then
+        if prepare_current_world_switch_regen(index, state, cb) then
+            return
+        end
         prepare_interrupted_world_switch_regen(index)
     end
 
