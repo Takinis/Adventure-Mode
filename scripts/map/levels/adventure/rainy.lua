@@ -18,8 +18,8 @@ AddAdventureLevel({
 
 		start_node = "Forest",
 		season_start = "autumn",
-		autumn       = "veryshortseason",
-		winter       = "veryshortseason",
+		autumn = "veryshortseason",
+		winter = "veryshortseason",
 		spring = "noseason",
 		summer = "noseason",
 		
