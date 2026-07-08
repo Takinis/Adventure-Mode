@@ -11,6 +11,7 @@ AddAdventureLevel({
 		wanderingtrader_enabled = "none",
 		start_location = "NightmareStart",
 		has_ocean = false,
+		specialevent = "none",
 
 		day = "onlynight",
 		season_start = "autumn",

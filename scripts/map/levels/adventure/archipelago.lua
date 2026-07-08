@@ -14,6 +14,7 @@ AddAdventureLevel({
 		start_location = "ThisMeansWarStart",
 		has_ocean = false,
 		wanderingtrader_enabled = "none",
+		specialevent = "none",
 
 		day        = "default",
 		islands    = "always",
@@ -21,10 +22,10 @@ AddAdventureLevel({
 		weather    = "default",
 
 		season_start = "autumn",
-		autumn       = "shortseason",
-		winter       = "shortseason",
-		spring       = "shortseason",
-		summer       = "shortseason",
+		autumn       = "default",
+		winter       = "default",
+		spring       = "noseason",
+		summer       = "noseason",
 		is_archipelago = true,
 
 		bearger    = "never",

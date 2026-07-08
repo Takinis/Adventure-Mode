@@ -30,6 +30,7 @@ AddAdventureLevel({
 		junkyard = "never",
 		balatro = "never",
 		terrariumchest = "never",
+		specialevent = "none",
 
 		portalresurection      = "none",
 		ghostenabled           = "always",

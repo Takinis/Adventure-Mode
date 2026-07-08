@@ -10,6 +10,7 @@ AddAdventureLevel({
 		start_location = "PreSummerStart",
 		has_ocean = false,
 		wanderingtrader_enabled = "none",
+		specialevent = "none",
 
 		day = "longdusk",
 		-- start_node = "Clearing",

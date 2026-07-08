@@ -16,6 +16,7 @@ AddAdventureLevel({
 		no_joining_islands = true,
 		layout_mode = "LinkNodesByKeys",
 		roads = "default",
+		specialevent = "none",
 
 		day = "onlynight",
 		season = "onlysummer",

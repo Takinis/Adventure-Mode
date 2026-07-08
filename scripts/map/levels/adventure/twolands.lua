@@ -10,7 +10,7 @@ AddAdventureLevel({
 		task_set = "TWOLANDS",
 		is_two_worlds = true,
 		day = "longday",
-		season = "onlysummer",
+		season = "onlyautumn",
 		season_start = "autumn",
 		islands = "always",
 		roads = "never",
@@ -21,6 +21,12 @@ AddAdventureLevel({
 		dragonfly = "never",
 		goosemoose = "never",
 
+		autumn = "veryshortseason",
+		winter = "noseason",
+		spring = "noseason",
+		summer = "noseason",
+
+		specialevent = "none",
 		wanderingtrader_enabled = "none",
 		stageplays = "never",
 		junkyard = "never",

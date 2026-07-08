@@ -10,7 +10,7 @@ AddAdventureLevel({
 		start_location = "WinterStartEasy",
 		has_ocean = false,
 		wanderingtrader_enabled = "none",
-
+		specialevent = "none",
 		world_size = "default",
 		day = "longdusk",
 		weather = "squall",
@@ -20,6 +20,8 @@ AddAdventureLevel({
 		season_start = "autumn",
 		autumn       = "veryshortseason",
 		winter       = "veryshortseason",
+		spring = "noseason",
+		summer = "noseason",
 		
 		deerclops = "never",
 		bearger = "never",
