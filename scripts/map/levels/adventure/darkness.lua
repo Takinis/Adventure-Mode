@@ -15,7 +15,10 @@ AddAdventureLevel({
 
 		day = "onlynight",
 		season_start = "autumn",
-		season = "onlysummer",
+		autumn = "default",
+		winter = "noseason",
+		spring = "noseason",
+		summer = "noseason",
 		weather = "often",
 		boons = "always",
 		roads = "never",
