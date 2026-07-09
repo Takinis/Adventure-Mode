@@ -18,8 +18,12 @@ AddAdventureLevel({
 		roads = "default",
 		specialevent = "none",
 
+		islands = "always",
 		day = "onlynight",
-		season = "onlysummer",
+		autumn = "default",
+		winter = "noseason",
+		spring = "noseason",
+		summer = "noseason",
 		weather = "never",
 		creepyeyes = "always",
 		waves = "off",
