@@ -15,6 +15,7 @@ local prefab_posts = {
 local components_posts = {
     "colourcube",
     "worldstate",
+    "weather",
     "frograin",
 }
 
