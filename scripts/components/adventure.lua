@@ -37,21 +37,21 @@ return Class(function(self, inst)
     local _world = TheWorld
     local _ismastersim = _world.ismastersim
 
-    local _active = net_bool(inst.GUID, "adventurestate._active", "adventurestatedirty")
-    local _secondary = net_bool(inst.GUID, "adventurestate._secondary", "adventurestatedirty")
-    local _chapter = net_smallbyte(inst.GUID, "adventurestate._chapter", "adventurestatedirty")
-    local _totalchapters = net_smallbyte(inst.GUID, "adventurestate._totalchapters", "adventurestatedirty")
-    local _currentpreset = net_string(inst.GUID, "adventurestate._currentpreset", "adventurestatedirty")
+    local _active = net_bool(inst.GUID, "adventure._active", "adventuredirty")
+    local _secondary = net_bool(inst.GUID, "adventure._secondary", "adventuredirty")
+    local _chapter = net_smallbyte(inst.GUID, "adventure._chapter", "adventuredirty")
+    local _totalchapters = net_smallbyte(inst.GUID, "adventure._totalchapters", "adventuredirty")
+    local _currentpreset = net_string(inst.GUID, "adventure._currentpreset", "adventuredirty")
     local _clientstate = nil
 
-    local function PushAdventureStateDirty()
-        _world:PushEvent("adventurestatedirty", _clientstate)
+    local function PushAdventureDirty()
+        _world:PushEvent("adventuredirty", _clientstate)
     end
 
     local function DecodeState()
         if not _active:value() then
             _clientstate = nil
-            PushAdventureStateDirty()
+            PushAdventureDirty()
             return nil
         end
 
@@ -65,7 +65,7 @@ return Class(function(self, inst)
             total_chapters = total_chapters > 0 and total_chapters or nil,
             current_preset = _currentpreset:value() ~= "" and _currentpreset:value() or nil,
         }
-        PushAdventureStateDirty()
+        PushAdventureDirty()
         return _clientstate
     end
 
@@ -87,10 +87,10 @@ return Class(function(self, inst)
             _currentpreset:set("")
         end
 
-        PushAdventureStateDirty()
+        PushAdventureDirty()
     end
 
-    local function OnAdventureStateDirty()
+    local function OnAdventureDirty()
         DecodeState()
     end
 
@@ -113,10 +113,19 @@ return Class(function(self, inst)
         return _active:value()
     end
 
+    function self:GetLevel()
+        local state = self:GetState()
+        return state ~= nil and state.active == true and state.current_preset or nil
+    end
+
+    function self:IsLevel(level)
+        return self:GetLevel() == level
+    end
+
     if _ismastersim then
         SetState(ShardGameIndex.adventure:GetState())
     else
-        inst:ListenForEvent("adventurestatedirty", OnAdventureStateDirty)
+        inst:ListenForEvent("adventuredirty", OnAdventureDirty)
         DecodeState()
     end
 end)

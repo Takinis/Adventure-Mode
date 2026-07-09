@@ -21,9 +21,13 @@ local function GetAdventureState()
     return ShardGameIndex.adventure:GetState()
 end
 
+local function GetAdventureLevel()
+    return ShardGameIndex.adventure:GetLevel()
+end
+
 local function GetAdventureTitleData()
     local state = GetAdventureState()
-    local preset = ShardGameIndex.adventure:GetPreset()
+    local preset = GetAdventureLevel()
 
     local level = preset ~= nil and ADVENTURE_TITLE_BY_PRESET[preset] or nil
     level = level or tostring(preset or "Adventure")
@@ -36,7 +40,7 @@ end
 
 local function GetAdventureTitleKey()
     local state = GetAdventureState()
-    local preset = ShardGameIndex.adventure:GetPreset()
+    local preset = GetAdventureLevel()
 
     return table.concat({
         tostring(state ~= nil and state.sequence_id or "default"),

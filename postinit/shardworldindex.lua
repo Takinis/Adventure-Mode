@@ -384,77 +384,6 @@ local function read_world_session_raw(index, session_id, cb)
     cb(nil)
 end
 
-local function get_clock_sync_snapshot(clock)
-    if type(clock) ~= "table" or clock.cycles == nil then
-        return nil
-    end
-
-    return
-    {
-        cycles = clock.cycles,
-        mooomphasecycle = clock.mooomphasecycle,
-    }
-end
-
-local function get_current_clock_sync_snapshot()
-    local clock = TheWorld ~= nil and
-        TheWorld.net ~= nil and
-        TheWorld.net.components ~= nil and
-        TheWorld.net.components.clock or nil
-
-    if clock ~= nil and clock.OnSave ~= nil then
-        return get_clock_sync_snapshot(clock:OnSave())
-    end
-
-    local cycles = TheWorld ~= nil and TheWorld.state ~= nil and TheWorld.state.cycles or nil
-    return cycles ~= nil and { cycles = cycles } or nil
-end
-
-local function should_sync_world_switch_clock(state)
-    return state ~= nil and state.kind ~= "adventure"
-end
-
-local function refresh_world_switch_clock_snapshot(state, opts)
-    if not should_sync_world_switch_clock(state) then
-        return
-    end
-
-    local snapshot = opts ~= nil and opts.clock_snapshot or nil
-    snapshot = snapshot or get_current_clock_sync_snapshot()
-    if snapshot ~= nil then
-        state.clock_snapshot = snapshot
-    end
-end
-
-local function apply_world_switch_clock_to_generated_savedata(state, savedata)
-    local snapshot = should_sync_world_switch_clock(state) and state.clock_snapshot or nil
-    local clock = type(savedata) == "table" and
-        savedata.world_network ~= nil and
-        savedata.world_network.persistdata ~= nil and
-        savedata.world_network.persistdata.clock or nil
-    if type(clock) ~= "table" or type(snapshot) ~= "table" or snapshot.cycles == nil then
-        return false
-    end
-
-    clock.cycles = snapshot.cycles
-    if snapshot.mooomphasecycle ~= nil then
-        clock.mooomphasecycle = snapshot.mooomphasecycle
-    end
-    return true
-end
-
-local function build_generated_world_metadata_str(savedata)
-    local metadata = { clock = {}, seasons = {} }
-    local worlddata = type(savedata) == "table" and
-        savedata.world_network ~= nil and
-        savedata.world_network.persistdata or nil
-    if type(worlddata) == "table" then
-        metadata.clock = worlddata.clock or metadata.clock
-        metadata.seasons = worlddata.seasons or metadata.seasons
-    end
-    return DataDumper(metadata, nil, BRANCH ~= "dev")
-end
-
 local function world_session_exists(index, session_id, cb)
     cb = cb or noop
     read_world_session_raw(index, session_id, function(savedata)
@@ -627,19 +556,24 @@ local function send_rpc_to_master_shard(modname, name, data)
     send_shard_rpc(modname, name, SHARDID.MASTER, data)
 end
 
-local function get_secondary_shard_player_count()
+local function get_secondary_shard_player_counts()
     if TheWorld == nil or TheShard == nil or TheShard.GetSecondaryShardPlayerCounts == nil or not is_master_shard() then
-        return 0
+        return 0, 0
     end
 
-    local secondary_players = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
-    return secondary_players or 0
+    local secondary_players, secondary_ghosts = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
+    return secondary_players or 0, secondary_ghosts or 0
+end
+
+local function get_secondary_shard_player_count()
+    local secondary_players = get_secondary_shard_player_counts()
+    return secondary_players
 end
 
 local function wait_for_secondary_shard_players_empty(cb, timeout, poll_interval)
     cb = cb or noop
 
-    if TheWorld == nil or TheShard == nil or TheShard.GetSecondaryShardPlayerCounts == nil then
+    if TheWorld == nil or TheShard == nil or TheShard.GetSecondaryShardPlayerCounts == nil or not is_master_shard() then
         cb()
         return
     end
@@ -649,8 +583,7 @@ local function wait_for_secondary_shard_players_empty(cb, timeout, poll_interval
 
     local started_at = GetTime()
     local function poll()
-        local secondary_players = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
-        secondary_players = secondary_players or 0
+        local secondary_players = get_secondary_shard_player_counts()
 
         if secondary_players <= 0 then
             TheWorld:DoTaskInTime(SECONDARY_SHARD_SETTLE_DELAY, cb)
@@ -1555,7 +1488,6 @@ local function prepare_current_world_switch_regen(index, state, cb)
     state.generation_recovery_state = nil
     state.last_player_session_injected = nil
     state.updated_at = os.time()
-    refresh_world_switch_clock_snapshot(state)
     set_world_switch_state(index, state)
 
     local worldgenoverride = get_current_world_switch_regen_worldgenoverride(index, state)
@@ -1616,7 +1548,6 @@ local function apply_pending_world_generation_state(state)
     state.current_session_id = nil
     state.player_sessions = deepcopy_safe(pending.player_sessions)
     state.adventure_player_sessions = deepcopy_safe(pending.adventure_player_sessions)
-    state.clock_snapshot = deepcopy_safe(pending.clock_snapshot) or state.clock_snapshot
     state.first_chapter_start_inv_pending = pending.first_chapter_start_inv_pending == true
     state.cleanup_session_id = pending.cleanup_session_id
     state.reuse_existing = pending.reuse_existing ~= false
@@ -2220,6 +2151,10 @@ function ShardWorldIndex:GetSecondaryShardPlayerCount()
     return get_secondary_shard_player_count()
 end
 
+function ShardWorldIndex:GetSecondaryShardPlayerCounts()
+    return get_secondary_shard_player_counts()
+end
+
 function ShardWorldIndex:WaitForSecondaryShardPlayersEmpty(cb, timeout, poll_interval)
     wait_for_secondary_shard_players_empty(cb, timeout, poll_interval)
 end
@@ -2369,9 +2304,6 @@ function ShardWorldIndex:BeforeGenerateNewWorld(index, savedata, metadataStr, se
         local world_table = get_savedata_table(savedata)
         state.current_session_id = session_identifier
         state.updated_at = os.time()
-        if apply_world_switch_clock_to_generated_savedata(state, world_table) then
-            metadataStr = build_generated_world_metadata_str(world_table)
-        end
         write_world_switch_topology_state(world_table, state)
         if type(savedata) == "string" and type(world_table) == "table" then
             savedata = DataDumper(world_table, nil, BRANCH ~= "dev")
@@ -2439,7 +2371,6 @@ function ShardWorldIndex:BeginWorldSwitch(index, opts, cb)
         state.current_target = target
         state.current_preset = state.current_preset or get_world_switch_target_id(target)
         state.current_session_id = nil
-        refresh_world_switch_clock_snapshot(state, opts)
 
         local is_secondary = state.secondary == true or opts.secondary == true
         local player_sessions = opts.player_sessions
@@ -2519,8 +2450,6 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
     state.pending_generation = pending
     state.reuse_existing = opts.reuse_existing ~= false
     state.updated_at = os.time()
-    refresh_world_switch_clock_snapshot(state, opts)
-    pending.clock_snapshot = pending.clock_snapshot or state.clock_snapshot
 
     local pending_chapter = pending.chapter
 
@@ -2608,7 +2537,6 @@ function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions)
     state.active = false
     state.finished_at = os.time()
     state.return_reason = reason or "return"
-    refresh_world_switch_clock_snapshot(state)
 
     local function save_return_state()
         restore_worldgenoverride(index, home.worldgenoverride, function()

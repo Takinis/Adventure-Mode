@@ -1,5 +1,4 @@
 local PARTS_ISLAND_TAG = "parts_island"
-local TWO_LANDS_PRESET = "TWOLANDS"
 local PARTS_ISLAND_SEASON_SEGS = { day = 0.7, dusk = 1.6, night = 0.7 }
 
 return Class(function(self, inst)
@@ -9,7 +8,7 @@ return Class(function(self, inst)
     local watched_players = {}
 
     local function IsTwoLands()
-        return TheWorld:IsAdventureActive() and ShardGameIndex.adventure:GetPreset() == TWO_LANDS_PRESET
+        return TheWorld:IsAdventureLevel("TWOLANDS")
     end
 
     local function IsPartsIslandArea(area)

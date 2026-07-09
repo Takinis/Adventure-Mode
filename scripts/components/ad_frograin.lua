@@ -23,6 +23,8 @@ local _frogcap = 0
 local _spawntime = TUNING.FROG_RAIN_DELAY
 local _updating = false
 local _lunarriftopen = false
+local RAINY_FROG_RAIN_PRECIPITATION = 0.35
+local RAINY_FROG_RAIN_MOISTURE = 300
 
 local _localfrogs = {
     min = TUNING.FROG_RAIN_LOCAL_MIN,
@@ -95,11 +97,11 @@ local function CancelSpawn(player)
 end
 
 local function ToggleUpdate(force)
-    if ShardGameIndex.adventure:GetState().current_preset == "RAINY" and -- 只在冒险模式：冷淡的接待关卡生效
-		not _worldstate.iswinter and
+    if TheWorld:IsAdventureLevel("RAINY") and -- 只在冒险模式：冷淡的接待关卡生效
+        not _worldstate.iswinter and
         _worldstate.israining and
-        _worldstate.precipitationrate > TUNING.FROG_RAIN_PRECIPITATION and
-        _worldstate.moistureceil > TUNING.FROG_RAIN_MOISTURE
+        _worldstate.precipitationrate > RAINY_FROG_RAIN_PRECIPITATION and
+        _worldstate.moistureceil > RAINY_FROG_RAIN_MOISTURE
     then
         if not _updating then
             _updating = true

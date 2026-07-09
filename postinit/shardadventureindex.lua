@@ -140,13 +140,9 @@ local function all_adventure_players_dead()
         end
     end
 
-    if TheShard ~= nil and TheShard.GetSecondaryShardPlayerCounts ~= nil and ShardWorldIndex:IsMasterShard() then
-        local secondary_players, secondary_ghosts = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
-        secondary_players = secondary_players or 0
-        secondary_ghosts = secondary_ghosts or 0
-        total = total + secondary_players
-        alive = alive + math.max(secondary_players - secondary_ghosts, 0)
-    end
+    local secondary_players, secondary_ghosts = ShardWorldIndex:GetSecondaryShardPlayerCounts()
+    total = total + secondary_players
+    alive = alive + math.max(secondary_players - secondary_ghosts, 0)
 
     return total > 0 and alive <= 0
 end
@@ -253,8 +249,8 @@ end
 
 get_adventure_state = function(index)
     if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.net ~= nil and
-        TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
-        local state = TheWorld.net.components.adventurestate:GetState()
+        TheWorld.net.components ~= nil and TheWorld.net.components.adventure ~= nil then
+        local state = TheWorld.net.components.adventure:GetState()
         if state ~= nil then
             return state
         end
@@ -278,6 +274,11 @@ end
 local function get_adventure_preset(index)
     local state = get_adventure_state(index)
     return get_adventure_preset_id(state ~= nil and state.current_preset or nil)
+end
+
+local function get_adventure_level(index)
+    local state = get_adventure_state(index)
+    return state ~= nil and state.active == true and get_adventure_preset_id(state.current_preset) or nil
 end
 
 local function get_adventure_chapter(state)
@@ -304,8 +305,8 @@ set_adventure_state = function(index, state)
     index.worldindex:SetState(state, ADVENTURE_WORLD_SWITCH_FILE_ID)
 
     if TheWorld ~= nil and TheWorld.ismastersim and TheWorld.net ~= nil and
-        TheWorld.net.components ~= nil and TheWorld.net.components.adventurestate ~= nil then
-        TheWorld.net.components.adventurestate:SetState(state)
+        TheWorld.net.components ~= nil and TheWorld.net.components.adventure ~= nil then
+        TheWorld.net.components.adventure:SetState(state)
     end
 end
 
@@ -513,6 +514,14 @@ end
 
 function ShardAdventureIndex:GetPreset()
     return get_adventure_preset(self.index)
+end
+
+function ShardAdventureIndex:GetLevel()
+    return get_adventure_level(self.index)
+end
+
+function ShardAdventureIndex:IsLevel(level)
+    return self:GetLevel() == level
 end
 
 function ShardAdventureIndex:GetMaxwellThronePuppet()

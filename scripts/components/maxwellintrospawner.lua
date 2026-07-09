@@ -16,6 +16,10 @@ local function GetCurrentAdventureState()
     return ShardGameIndex.adventure:GetState()
 end
 
+local function GetCurrentAdventureLevel()
+    return ShardGameIndex.adventure:GetLevel()
+end
+
 local function GetPlayerUserid(inst)
     local userid = inst ~= nil and inst.userid or nil
     return type(userid) == "string" and userid ~= "" and userid or nil
@@ -27,13 +31,9 @@ local function GetCurrentAdventureChapter()
     return type(chapter) == "number" and chapter or nil
 end
 
-local function GetCurrentAdventurePreset()
-    return ShardGameIndex.adventure:GetPreset()
-end
-
 local function GetCurrentAdventureSpeechName()
-    local preset = GetCurrentAdventurePreset()
-    if preset == "ENDING" then
+    local level = GetCurrentAdventureLevel()
+    if level == "ENDING" then
         return nil
     end
 
@@ -42,7 +42,7 @@ local function GetCurrentAdventureSpeechName()
         return nil
     end
 
-    return preset == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
+    return level == "TWOLANDS" and "ADVENTURE_TWOLANDS" or MAXWELL_SPEECH_BY_CHAPTER[chapter]
 end
 
 local function SpawnMaxwellIntroForPlayer(inst, speech_name)

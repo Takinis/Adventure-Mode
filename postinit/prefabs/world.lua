@@ -5,15 +5,22 @@ local ADVENTURE_DEATH_CHECK_POLL_INTERVAL = 0.25
 local ADVENTURE_DEATH_CHECK_INITIAL_DELAY = 0.1
 
 local function is_master_shard()
-    if Shard_IsMaster ~= nil then
-        return Shard_IsMaster()
+    return ShardWorldIndex ~= nil and ShardWorldIndex:IsMasterShard()
+end
+
+local function get_secondary_shard_player_counts()
+    if ShardWorldIndex == nil then
+        return 0, 0
     end
-    if TheShard ~= nil and TheShard:IsMaster() then
-        return true
-    end
-    return TheNet ~= nil and TheShard ~= nil and
-        TheNet:GetIsMasterSimulation() and
-        not TheShard:IsSecondary()
+
+    return ShardWorldIndex:GetSecondaryShardPlayerCounts()
+end
+
+local function get_adventure_state_component(inst)
+    local world_net = inst ~= nil and inst.net or nil
+    return world_net ~= nil and
+        world_net.components ~= nil and
+        world_net.components.adventure or nil
 end
 
 local function player_is_dead_or_ghost(player)
@@ -40,35 +47,34 @@ local function all_adventure_players_dead()
         end
     end
 
-    if TheShard ~= nil and is_master_shard() then
-        local secondary_players, secondary_ghosts = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
-        secondary_players = secondary_players or 0
-        secondary_ghosts = secondary_ghosts or 0
-        total = total + secondary_players
-        alive = alive + math.max(secondary_players - secondary_ghosts, 0)
-    end
+    local secondary_players, secondary_ghosts = get_secondary_shard_player_counts()
+    total = total + secondary_players
+    alive = alive + math.max(secondary_players - secondary_ghosts, 0)
 
     return total > 0 and alive <= 0
 end
 
 local function get_secondary_shard_player_count()
-    if TheWorld == nil or TheShard == nil or not is_master_shard() then
-        return 0
-    end
-
-    local secondary_players = TheShard:GetSecondaryShardPlayerCounts(USERFLAGS.IS_GHOST)
-    return secondary_players or 0
+    local secondary_players = get_secondary_shard_player_counts()
+    return secondary_players
 end
 
 local function is_adventure_active(inst)
-    local world_net = inst ~= nil and inst.net or nil
-    local adventurestate = world_net ~= nil and
-        world_net.components ~= nil and
-        world_net.components.adventurestate or nil
+    local adventure = get_adventure_state_component(inst)
 
-    if adventurestate ~= nil then
-        return adventurestate:IsActive()
+    if adventure ~= nil then
+        return adventure:IsActive()
     end
+end
+
+local function get_adventure_level(inst)
+    local adventure = get_adventure_state_component(inst)
+    return adventure ~= nil and adventure:GetLevel() or nil
+end
+
+local function is_adventure_level(inst, level)
+    local adventure = get_adventure_state_component(inst)
+    return adventure ~= nil and adventure:IsLevel(level)
 end
 
 local function start_adventure_death_check(inst)
@@ -97,6 +103,8 @@ end
 AddPrefabPostInit("world", function(inst)
 
     inst.IsAdventureActive = is_adventure_active
+    inst.GetAdventureLevel = get_adventure_level
+    inst.IsAdventureLevel = is_adventure_level
 
     if not TheWorld.ismastersim then
         return
