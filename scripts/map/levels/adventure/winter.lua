@@ -35,6 +35,7 @@ AddAdventureLevel({
 		terrariumchest = "never",
 		specialevent = "none",
 
+		prefabswaps_start = "classic",
 		petrification = "none",
 		portalresurection      = "none",
 		ghostenabled           = "always",
