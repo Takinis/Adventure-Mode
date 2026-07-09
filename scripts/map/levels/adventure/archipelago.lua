@@ -38,6 +38,7 @@ AddAdventureLevel({
 		balatro = "never",
 		terrariumchest = "never",
 
+		petrification = "none",
 		portalresurection      = "none",
 		ghostenabled           = "always",
 		ghostsanitydrain       = "always",
