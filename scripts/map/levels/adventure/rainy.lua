@@ -14,9 +14,7 @@ AddAdventureLevel({
 		world_size = "default",
 		day = "longdusk",
 		weather = "squall",
-		-- frograin = "often",
-		-- weather = "always",
-		frograin = "force",
+		frograin = "often",
 
 		start_node = "Forest",
 		season_start = "autumn",
