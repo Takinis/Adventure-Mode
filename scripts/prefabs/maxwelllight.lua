@@ -1,7 +1,5 @@
-local assets =
-{
+local assets = {
 	Asset("ANIM", "anim/maxwell_torch.zip"),
-    Asset("MINIMAP_IMAGE", "maxwelltorch"),
 }
 
 local prefabs =
@@ -34,7 +32,7 @@ local function fn()
     inst.entity:AddNetwork()
     inst.entity:AddMiniMapEntity()
 
-    inst.MiniMapEntity:SetIcon("maxwelltorch.png")
+    inst.MiniMapEntity:SetIcon("maxwelltorch.tex")
 
     inst.AnimState:SetBank("maxwell_torch")
     inst.AnimState:SetBuild("maxwell_torch")
