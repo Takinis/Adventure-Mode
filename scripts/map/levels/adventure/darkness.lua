@@ -1,10 +1,12 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "DARKNESS",
-	name = "DARKNESS",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[6],
 	location = "forest",
 	version = 4,
+	min_playlist_position = 5,
+	max_playlist_position = 5,
 	overrides = {
 		branching = "never",
 		task_set = "DARKNESS",

@@ -1,11 +1,13 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "ENDING",
-	name = "ENDING",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[7],
 	location = "forest",
 	nomaxwell = true,
 	version = 4,
+	min_playlist_position = 6,
+	max_playlist_position = 6,
 	overrides = {
 		task_set = "ENDING",
 		wanderingtrader_enabled = "none",

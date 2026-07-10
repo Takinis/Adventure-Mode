@@ -3,11 +3,13 @@ GLOBAL.setfenv(1, GLOBAL)
 -- ============================================================
 -- ISLANDHOP — Archipelago
 -- ============================================================
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "ISLANDHOP",
-	name = "ISLANDHOP",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[4],
 	location = "forest",
 	version = 4,
+	min_playlist_position = 1,
+	max_playlist_position = 4,
 	overrides = {
 		world_size = "medium",
 		task_set = "IslandHop",

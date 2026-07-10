@@ -13,6 +13,156 @@ end)
 local ADVENTURE_DEATH_CHECK_POLL_INTERVAL = 0.25
 local ADVENTURE_DEATH_CHECK_INITIAL_DELAY = 0.1
 local ADVENTURE_WORLD_SWITCH_FILE_ID = "adventure"
+local ADVENTURE_DARKNESS_LEVEL = "DARKNESS"
+local ADVENTURE_ENDING_LEVEL = "ENDING"
+local ADVENTURE_CORE_LEVEL_COUNT = 4
+local ADVENTURE_CORE_LEVELS =
+{
+    RAINY = true,
+    WINTER = true,
+    HUB = true,
+    ISLANDHOP = true,
+    TWOLANDS = true,
+}
+
+local function get_adventure_playlist_level_id(level)
+    if type(level) == "table" then
+        level = level.id
+    end
+    return type(level) == "string" and level ~= "" and level or nil
+end
+
+local function get_adventure_playlist_level_key(level)
+    local id = get_adventure_playlist_level_id(level)
+    return id ~= nil and string.upper(id) or nil
+end
+
+local function get_adventure_playlist_position(value, default)
+    value = tonumber(value)
+    return value ~= nil and math.floor(value) or default
+end
+
+local function order_adventure_playlist_levels(levels)
+    local count = #levels
+    if count == 0 then
+        return {}
+    elseif count == 1 then
+        return { levels[1].id }
+    end
+
+    local pending = {}
+    for _, level in ipairs(levels) do
+        local min_position = math.max(get_adventure_playlist_position(level.min_playlist_position, 1), 1)
+        local max_position = math.max(get_adventure_playlist_position(level.max_playlist_position, count), min_position)
+
+        min_position = math.min(min_position, count)
+        max_position = math.min(max_position, count)
+
+        table.insert(pending, {
+            id = level.id,
+            min_position = min_position,
+            preferred_position = math.random(min_position, max_position),
+            tie_breaker = math.random(1, 1000000),
+        })
+    end
+
+    table.sort(pending, function(a, b)
+        if a.preferred_position ~= b.preferred_position then
+            return a.preferred_position < b.preferred_position
+        end
+        if a.tie_breaker ~= b.tie_breaker then
+            return a.tie_breaker < b.tie_breaker
+        end
+        return a.id < b.id
+    end)
+
+    local ordered = {}
+    for position = 1, count do
+        local selected = nil
+        for i, level in ipairs(pending) do
+            if level.min_position <= position then
+                selected = i
+                break
+            end
+        end
+
+        -- Conflicting position preferences must not make a registered level disappear.
+        selected = selected or 1
+        table.insert(ordered, table.remove(pending, selected).id)
+    end
+
+    return ordered
+end
+
+local function build_adventure_playlist(levels)
+    local core_levels = {}
+    local extension_levels = {}
+    local levels_by_key = {}
+    local seen = {}
+    local has_darkness = false
+    local has_ending = false
+
+    for _, level in ipairs(levels) do
+        local id = get_adventure_playlist_level_id(level)
+        local key = get_adventure_playlist_level_key(level)
+        if key == ADVENTURE_DARKNESS_LEVEL then
+            has_darkness = true
+        elseif key == ADVENTURE_ENDING_LEVEL then
+            has_ending = true
+        elseif id ~= nil and not seen[key] then
+            seen[key] = true
+            local playlist_level = {
+                id = id,
+                min_playlist_position = type(level) == "table" and level.min_playlist_position or nil,
+                max_playlist_position = type(level) == "table" and level.max_playlist_position or nil,
+            }
+            levels_by_key[key] = playlist_level
+            table.insert(ADVENTURE_CORE_LEVELS[key] and core_levels or extension_levels, playlist_level)
+        end
+    end
+
+    if not has_darkness or not has_ending then
+        local missing = not has_darkness and ADVENTURE_DARKNESS_LEVEL or ADVENTURE_ENDING_LEVEL
+        return nil, "missing terminal adventure level " .. missing
+    end
+
+    local regular_levels = {}
+    local ordered_core_levels = order_adventure_playlist_levels(core_levels)
+    for i = 1, math.min(ADVENTURE_CORE_LEVEL_COUNT, #ordered_core_levels) do
+        table.insert(regular_levels, levels_by_key[string.upper(ordered_core_levels[i])])
+    end
+    for _, level in ipairs(extension_levels) do
+        table.insert(regular_levels, level)
+    end
+
+    local playlist = order_adventure_playlist_levels(regular_levels)
+    table.insert(playlist, ADVENTURE_DARKNESS_LEVEL)
+    table.insert(playlist, ADVENTURE_ENDING_LEVEL)
+    return playlist
+end
+
+local function normalize_adventure_playlist(level_sequence)
+    if type(level_sequence) ~= "table" then
+        return nil, "level_sequence must be a table"
+    end
+
+    local normalized = {}
+    for i = 1, #level_sequence do
+        local level = level_sequence[i]
+        if type(level) ~= "table" and get_adventure_playlist_level_id(level) == nil then
+            return nil, "invalid level id at position " .. tostring(i)
+        end
+
+        local key = get_adventure_playlist_level_key(level)
+        if key ~= ADVENTURE_DARKNESS_LEVEL and key ~= ADVENTURE_ENDING_LEVEL then
+            table.insert(normalized, level)
+        end
+    end
+
+    table.insert(normalized, ADVENTURE_DARKNESS_LEVEL)
+    table.insert(normalized, ADVENTURE_ENDING_LEVEL)
+    return normalized
+end
 
 local function NOOP()
     ShardWorldIndex:Noop()
@@ -380,17 +530,6 @@ local function mark_current_adventure_maxwell_intro_played(index, userid)
     return true
 end
 
-
-local LEVEL_DEFS = {
-    { id = "RAINY",      min_playlist_position = 1, max_playlist_position = 3 },
-    { id = "WINTER",     min_playlist_position = 1, max_playlist_position = 4 },
-    { id = "HUB",        min_playlist_position = 1, max_playlist_position = 4 },
-    { id = "ISLANDHOP",  min_playlist_position = 1, max_playlist_position = 4 },
-    { id = "TWOLANDS",   min_playlist_position = 3, max_playlist_position = 4 },
-    { id = "DARKNESS",   min_playlist_position = CAMPAIGN_LENGTH,     max_playlist_position = CAMPAIGN_LENGTH },
-    { id = "ENDING",     min_playlist_position = CAMPAIGN_LENGTH + 1, max_playlist_position = CAMPAIGN_LENGTH + 1 },
-}
-
 function ShardAdventureIndex:ForceLocalPlayersToMaster()
     ShardWorldIndex:ForceLocalPlayersToMaster()
 end
@@ -472,30 +611,26 @@ function ShardAdventureIndex:AfterGenerateNewWorld(savedata, session_identifier,
 end
 
 function ShardAdventureIndex:BuildPlaylist()
-    local pool = {}
-    for _, def in ipairs(LEVEL_DEFS) do
-        if def.id ~= "DARKNESS" and def.id ~= "ENDING" then
-            table.insert(pool, def)
-        end
-    end
-
-    shuffleArray(pool)
-
-    local playlist = {}
-    for position = 1, CAMPAIGN_LENGTH - 1 do
-        for i, def in ipairs(pool) do
-            if def.min_playlist_position <= position and def.max_playlist_position >= position then
-                playlist[position] = def.id
-                table.remove(pool, i)
-                break
+    local Levels = require("map/levels")
+    local registered_levels = {}
+    for _, level_entry in ipairs(Levels.GetLevelList(LEVELTYPE.ADVENTURE)) do
+        local level_id = level_entry.data
+        -- GetLevelList also appends custom presets regardless of level type.
+        if Levels.GetTypeForLevelID(level_id) == LEVELTYPE.ADVENTURE then
+            local level = Levels.GetDataForLevelID(level_id)
+            if level ~= nil then
+                table.insert(registered_levels, level)
             end
         end
     end
 
-    playlist[CAMPAIGN_LENGTH]     = "DARKNESS"
-    playlist[CAMPAIGN_LENGTH + 1] = "ENDING"
+    local playlist, error_message = build_adventure_playlist(registered_levels)
+    if playlist == nil then
+        print("[Adventure Mode] Cannot build playlist: " .. tostring(error_message) .. ".")
+        return nil
+    end
 
-    print("Adventure Mode: built adventure playlist")
+    print("[Adventure Mode] Built adventure playlist.")
     for i = 1, #playlist do
         print("  Chapter " .. tostring(i) .. ": " .. tostring(playlist[i]))
     end
@@ -559,14 +694,29 @@ function ShardAdventureIndex:Begin(opts, cb)
         return
     end
 
-    local level_sequence = opts.level_sequence or self:BuildPlaylist()
-    if #level_sequence == 0 then
-        print("[Adventure Mode] Empty level_sequence.")
+    local level_sequence, sequence_error = normalize_adventure_playlist(opts.level_sequence or self:BuildPlaylist())
+    if level_sequence == nil then
+        print("[Adventure Mode] Invalid level_sequence: " .. tostring(sequence_error) .. ".")
         cb(false)
         return
     end
+    opts.level_sequence = level_sequence
 
-    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[1], worldindex:GetIndexShard())
+    local initial_chapter = opts.chapter or 1
+    if type(initial_chapter) ~= "number" then
+        print("[Adventure Mode] Invalid initial chapter " .. tostring(initial_chapter) .. ".")
+        cb(false)
+        return
+    end
+    initial_chapter = math.floor(initial_chapter)
+    if initial_chapter < 1 or initial_chapter > #level_sequence then
+        print("[Adventure Mode] Initial chapter " .. tostring(initial_chapter) .. " is outside the playlist.")
+        cb(false)
+        return
+    end
+    opts.chapter = initial_chapter
+
+    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[initial_chapter], worldindex:GetIndexShard())
     local previous_state = get_adventure_state(index)
     local main_player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
     local state =
@@ -583,14 +733,14 @@ function ShardAdventureIndex:Begin(opts, cb)
         updated_at = os.time(),
 
         level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
-        chapter = 1,
+        chapter = initial_chapter,
         current_preset = first_preset,
         current_session_id = nil,
         player_sessions = ShardWorldIndex:GetCharacterOnlySessions(main_player_sessions),
         participants = ShardWorldIndex:SessionsToUseridMap(main_player_sessions),
         late_joiners = {},
         adventure_player_sessions = {},
-        first_chapter_start_inv_pending = true,
+        first_chapter_start_inv_pending = initial_chapter == 1,
         first_chapter_start_inv_given = {},
         maxwell_intro_played_chapters = {},
         maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_state ~= nil and previous_state.maxwell_throne_puppet or nil),
@@ -604,7 +754,7 @@ function ShardAdventureIndex:Begin(opts, cb)
         file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
         reuse_existing = false,
         level_sequence = level_sequence,
-        chapter = 1,
+        chapter = initial_chapter,
         keep_session = true,
         player_sessions = main_player_sessions,
         return_position = opts.return_position,
@@ -636,14 +786,29 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         return
     end
 
-    local level_sequence = opts.level_sequence
-    if type(level_sequence) ~= "table" or #level_sequence == 0 then
-        print("[Adventure Mode] Empty secondary level_sequence.")
+    local level_sequence, sequence_error = normalize_adventure_playlist(opts.level_sequence)
+    if level_sequence == nil then
+        print("[Adventure Mode] Invalid secondary level_sequence: " .. tostring(sequence_error) .. ".")
         cb(false)
         return
     end
+    opts.level_sequence = level_sequence
 
-    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[1], worldindex:GetIndexShard())
+    local initial_chapter = opts.chapter or 1
+    if type(initial_chapter) ~= "number" then
+        print("[Adventure Mode] Invalid secondary initial chapter " .. tostring(initial_chapter) .. ".")
+        cb(false)
+        return
+    end
+    initial_chapter = math.floor(initial_chapter)
+    if initial_chapter < 1 or initial_chapter > #level_sequence then
+        print("[Adventure Mode] Secondary initial chapter " .. tostring(initial_chapter) .. " is outside the playlist.")
+        cb(false)
+        return
+    end
+    opts.chapter = initial_chapter
+
+    local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[initial_chapter], worldindex:GetIndexShard())
     local state =
     {
         active = true,
@@ -659,7 +824,7 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         updated_at = os.time(),
 
         level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
-        chapter = 1,
+        chapter = initial_chapter,
         current_preset = first_preset,
         current_session_id = nil,
         player_sessions = nil,
@@ -677,7 +842,7 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
         reuse_existing = false,
         level_sequence = level_sequence,
-        chapter = 1,
+        chapter = initial_chapter,
         keep_session = true,
         state = state,
     }, function(success)
@@ -842,7 +1007,24 @@ function ShardAdventureIndex:Start(opts)
         return false
     end
     opts = opts or {}
-    opts.level_sequence = opts.level_sequence or self:BuildPlaylist()
+    local level_sequence, sequence_error = normalize_adventure_playlist(opts.level_sequence or self:BuildPlaylist())
+    if level_sequence == nil then
+        print("[Adventure Mode] Cannot start adventure: " .. tostring(sequence_error) .. ".")
+        return false
+    end
+    opts.level_sequence = level_sequence
+
+    local initial_chapter = opts.chapter or 1
+    if type(initial_chapter) ~= "number" then
+        print("[Adventure Mode] Cannot start at chapter " .. tostring(initial_chapter) .. ".")
+        return false
+    end
+    initial_chapter = math.floor(initial_chapter)
+    if initial_chapter < 1 or initial_chapter > #level_sequence then
+        print("[Adventure Mode] Cannot start at chapter " .. tostring(initial_chapter) .. ".")
+        return false
+    end
+    opts.chapter = initial_chapter
 
     local function begin_after_save()
         self:Begin(opts, function(success)

@@ -6,17 +6,6 @@ local TITLE_SEND_RETRY_LIMIT = 30
 
 local sent_adventure_title_by_userid = {}
 
-local ADVENTURE_TITLE_BY_PRESET =
-{
-    RAINY = "A Cold Reception",
-    WINTER = "The King of Winter",
-    HUB = "The Game is Afoot",
-    ISLANDHOP = "Archipelago",
-    TWOLANDS = "Two Worlds",
-    DARKNESS = "Darkness",
-    ENDING = "Checkmate",
-}
-
 local function GetAdventureState()
     return ShardGameIndex.adventure:GetState()
 end
@@ -29,13 +18,10 @@ local function GetAdventureTitleData()
     local state = GetAdventureState()
     local preset = GetAdventureLevel()
 
-    local level = preset ~= nil and ADVENTURE_TITLE_BY_PRESET[preset] or nil
-    level = level or tostring(preset or "Adventure")
-
     local chapter = state ~= nil and state.chapter or 1
     local total = state ~= nil and (state.total_chapters or (state.level_sequence ~= nil and #state.level_sequence)) or 1
 
-    return level, string.format("Chapter %d of %d", chapter, total)
+    return preset, chapter, total
 end
 
 local function GetAdventureTitleKey()
@@ -72,8 +58,8 @@ local function ShowAdventureTitle(inst, retries)
         return
     end
 
-    local level, chapter = GetAdventureTitleData()
-    SendModRPCToClient(GetClientModRPC("AdventureMode", "ShowTitle"), inst.userid, level, chapter, play_maxwell_intro)
+    local preset, chapter, total = GetAdventureTitleData()
+    SendModRPCToClient(GetClientModRPC("AdventureMode", "ShowTitle"), inst.userid, preset, chapter, total, play_maxwell_intro)
     sent_adventure_title_by_userid[inst.userid] = title_key
 end
 

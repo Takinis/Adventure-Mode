@@ -1,10 +1,12 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "HUB",
-	name = "HUB",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[3],
 	location = "forest",
 	version = 4,
+	min_playlist_position = 1,
+	max_playlist_position = 4,
 	overrides = {
 		task_set = "HUB",
 		start_location = "PreSummerStart",

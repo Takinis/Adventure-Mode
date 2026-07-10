@@ -3,9 +3,18 @@ local AddClientModRPCHandler = AddClientModRPCHandler
 local AddShardModRPCHandler = AddShardModRPCHandler
 GLOBAL.setfenv(1, GLOBAL)
 
-AddClientModRPCHandler("AdventureMode", "ShowTitle", function(level, chapter, play_maxwell_intro)
+local Levels = require("map/levels")
+
+AddClientModRPCHandler("AdventureMode", "ShowTitle", function(preset, chapter, total, play_maxwell_intro)
+    if type(chapter) ~= "number" or type(total) ~= "number" then
+        return
+    end
+
     if TheFrontEnd ~= nil then
-        TheFrontEnd:QueueAdventureTitle(level, chapter, play_maxwell_intro == true)
+        local level = type(preset) == "string" and Levels.GetNameForLevelID(preset) or nil
+        level = level or tostring(preset or "Adventure")
+        local chapter_text = string.format(STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER, chapter, total)
+        TheFrontEnd:QueueAdventureTitle(level, chapter_text, play_maxwell_intro == true)
     end
 end)
 

@@ -54,20 +54,24 @@ function c_adventure_last()
     return ShardGameIndex.adventure:AdvanceShard({ chapter = total })
 end
 
-local ADVENTURE_TEST_LEVEL_IDS =
-{
-    "RAINY",
-    "WINTER",
-    "HUB",
-    "ISLANDHOP",
-    "TWOLANDS",
-    "DARKNESS",
-    "ENDING",
-}
+local function GetAdventureTestLevels()
+    local Levels = require("map/levels")
+    local level_ids = {}
+    local levels_by_key = {}
 
-local ADVENTURE_TEST_LEVELS = {}
-for _, level_id in ipairs(ADVENTURE_TEST_LEVEL_IDS) do
-    ADVENTURE_TEST_LEVELS[level_id] = true
+    for _, level_entry in ipairs(Levels.GetLevelList(LEVELTYPE.ADVENTURE)) do
+        local level_id = level_entry.data
+        if type(level_id) == "string" and Levels.GetTypeForLevelID(level_id) == LEVELTYPE.ADVENTURE then
+            local key = string.upper(level_id)
+            if levels_by_key[key] == nil then
+                levels_by_key[key] = level_id
+                table.insert(level_ids, level_id)
+            end
+        end
+    end
+
+    table.sort(level_ids)
+    return level_ids, levels_by_key
 end
 
 local function NormalizeAdventureTestKey(value)
@@ -75,18 +79,21 @@ local function NormalizeAdventureTestKey(value)
         return nil
     end
 
-    local key = string.upper(tostring(value)):gsub("[^%w]", "")
+    local key = tostring(value):match("^%s*(.-)%s*$")
+    key = key ~= nil and string.upper(key) or nil
     return key ~= "" and key or nil
 end
 
 local function GetAdventureTestLevel(value)
     local key = NormalizeAdventureTestKey(value)
-    return key ~= nil and ADVENTURE_TEST_LEVELS[key] and key or nil
+    local _, levels_by_key = GetAdventureTestLevels()
+    return key ~= nil and levels_by_key[key] or nil
 end
 
 local function PrintAdventureTestUsage()
+    local level_ids = GetAdventureTestLevels()
     print("[Adventure Mode] Usage: c_adventure(\"ENDING\")")
-    print("[Adventure Mode] Levels: "..table.concat(ADVENTURE_TEST_LEVEL_IDS, ", ")..".")
+    print("[Adventure Mode] Levels: "..table.concat(level_ids, ", ")..".")
 end
 
 function c_adventure(level)
@@ -109,6 +116,7 @@ function c_adventure(level)
     print("[Adventure Mode] Starting test adventure level "..tostring(level_id)..".")
     return ShardGameIndex.adventure:Start({
         level_sequence = { level_id },
+        chapter = string.upper(level_id) == "ENDING" and 2 or 1,
         sequence_id = "test_"..string.lower(level_id),
     })
 end

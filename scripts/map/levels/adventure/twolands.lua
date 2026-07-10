@@ -1,11 +1,13 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "TWOLANDS",
-	name = "TWOLANDS",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[5],
 	location = "forest",
 	override_level_string = true,
 	version = 4,
+	min_playlist_position = 3,
+	max_playlist_position = 4,
 	overrides = {
 		task_set = "TWOLANDS",
 		is_two_worlds = true,

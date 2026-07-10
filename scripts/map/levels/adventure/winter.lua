@@ -1,10 +1,12 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "WINTER",
-	name = "WINTER",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[2],
 	location = "forest",
 	version = 4,
+	min_playlist_position = 1,
+	max_playlist_position = 4,
 	overrides = {
 		task_set = "WINTER",
 		wanderingtrader_enabled = "none",

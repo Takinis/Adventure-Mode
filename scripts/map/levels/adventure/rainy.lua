@@ -1,10 +1,12 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-AddAdventureLevel({
+	AddAdventureLevel({
 	id = "RAINY",
-	name = "RAINY",
+	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[1],
 	location = "forest",
 	version = 4,
+	min_playlist_position = 1,
+	max_playlist_position = 3,
 	overrides = {
 		task_set = "RAINY",
 		start_location = "WinterStartEasy",

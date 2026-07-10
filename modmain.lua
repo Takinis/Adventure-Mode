@@ -3,6 +3,7 @@ local modimport = modimport
 local modules = {
     "toolutil",
     "worldsettings_overrides",
+    "strings",
     "constants",
     "assets",
     "tuning",
