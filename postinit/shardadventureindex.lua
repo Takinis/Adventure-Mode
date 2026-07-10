@@ -821,7 +821,11 @@ function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
     inject_late_joiners_into_main_world(index, state, function()
         worldindex:ReturnToStoredWorld(reason or "return", function(success)
             if success then
-                set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+                worldindex:RestoreParentWorldSwitch(state, function()
+                    set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+                    cb(success)
+                end)
+                return
             end
             cb(success)
         end, state.main.player_sessions)

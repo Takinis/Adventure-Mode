@@ -54,6 +54,65 @@ function c_adventure_last()
     return ShardGameIndex.adventure:AdvanceShard({ chapter = total })
 end
 
+local ADVENTURE_TEST_LEVEL_IDS =
+{
+    "RAINY",
+    "WINTER",
+    "HUB",
+    "ISLANDHOP",
+    "TWOLANDS",
+    "DARKNESS",
+    "ENDING",
+}
+
+local ADVENTURE_TEST_LEVELS = {}
+for _, level_id in ipairs(ADVENTURE_TEST_LEVEL_IDS) do
+    ADVENTURE_TEST_LEVELS[level_id] = true
+end
+
+local function NormalizeAdventureTestKey(value)
+    if value == nil then
+        return nil
+    end
+
+    local key = string.upper(tostring(value)):gsub("[^%w]", "")
+    return key ~= "" and key or nil
+end
+
+local function GetAdventureTestLevel(value)
+    local key = NormalizeAdventureTestKey(value)
+    return key ~= nil and ADVENTURE_TEST_LEVELS[key] and key or nil
+end
+
+local function PrintAdventureTestUsage()
+    print("[Adventure Mode] Usage: c_adventure(\"ENDING\")")
+    print("[Adventure Mode] Levels: "..table.concat(ADVENTURE_TEST_LEVEL_IDS, ", ")..".")
+end
+
+function c_adventure(level)
+    if not ShardGameIndex.adventure:IsMasterShard() then
+        print("[Adventure Mode] c_adventure_level must be called on the master shard.")
+        return false
+    end
+
+    if ShardGameIndex.adventure:IsActive() then
+        print("[Adventure Mode] Adventure is already active. Return from it before starting a test level.")
+        return false
+    end
+
+    local level_id = GetAdventureTestLevel(level)
+    if level_id == nil then
+        PrintAdventureTestUsage()
+        return false
+    end
+
+    print("[Adventure Mode] Starting test adventure level "..tostring(level_id)..".")
+    return ShardGameIndex.adventure:Start({
+        level_sequence = { level_id },
+        sequence_id = "test_"..string.lower(level_id),
+    })
+end
+
 local WORLD_SWITCH_WORLD_ALIASES =
 {
     dst = "forest",
