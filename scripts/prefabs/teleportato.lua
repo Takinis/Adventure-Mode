@@ -348,15 +348,38 @@ local function DenyTeleportato(doer, message)
 	end
 end
 
+local function IsLivingPlayer(player)
+	return player ~= nil and IsValidUserId(player.userid) and
+		player.components.health ~= nil and not player.components.health:IsDead() and
+		not player:HasTag("playerghost")
+end
+
+local function GetActivationProgress(inst)
+	local confirmed_players = {}
+	local confirmed_count = 0
+	local player_count = 0
+
+	for _, player in ipairs(AllPlayers or {}) do
+		if IsLivingPlayer(player) then
+			player_count = player_count + 1
+			if inst._confirmed_players[player.userid] then
+				confirmed_players[player.userid] = true
+				confirmed_count = confirmed_count + 1
+			end
+		end
+	end
+
+	inst._confirmed_players = confirmed_players
+	return confirmed_count, player_count
+end
+
 local function AreAllPlayersNearby(inst)
 	if AllPlayers == nil then
 		return false
 	end
 
 	for _, player in ipairs(AllPlayers) do
-		if player.userid ~= nil and player.userid ~= "" and
-			player.components.health ~= nil and not player.components.health:IsDead() and
-			not player:IsNear(inst, 10) then
+		if IsLivingPlayer(player) and not player:IsNear(inst, 10) then
 			return false
 		end
 	end
@@ -384,6 +407,16 @@ local function TransitionToNextLevel(inst, doer)
 
 	if SecondaryShardHasPlayers() then
 		DenyTeleportato(doer, "Everyone must return from the Caves first.")
+		return false
+	end
+
+	local confirmed_count, player_count = GetActivationProgress(inst)
+	if player_count == 0 or confirmed_count < player_count then
+		DenyTeleportato(doer, string.format(
+			"Waiting for all living players to activate the Teleportato (%d/%d).",
+			confirmed_count,
+			player_count
+		))
 		return false
 	end
 
@@ -421,8 +454,32 @@ local function TransitionToNextLevel(inst, doer)
 	return true
 end
 
+local function SetPlayerActivation(inst, doer, active)
+	if doer == nil or not IsValidUserId(doer.userid) then
+		return false
+	end
+
+	if not active then
+		inst._confirmed_players[doer.userid] = nil
+		return false
+	end
+
+	if not IsLivingPlayer(doer) or not TheWorld:IsAdventureActive() or
+		CountParts(inst) < PART_COUNT or inst._activating then
+		return false
+	end
+
+	if not doer:IsNear(inst, 10) then
+		DenyTeleportato(doer)
+		return false
+	end
+
+	inst._confirmed_players[doer.userid] = true
+	return TransitionToNextLevel(inst, doer)
+end
+
 local function GetBodyText()
-	return "Begin the next Adventure Mode chapter? All living players must stand near the Teleportato."
+	return "Begin the next Adventure Mode chapter? Every living player must confirm activation and stand near the Teleportato."
 end
 
 CheckNextLevelSure = function(inst, doer)
@@ -585,6 +642,7 @@ local function OnLoad(inst, data)
 	inst._activating = false
 	inst._waiting_for_powerup = false
 	inst._playercontainers = {}
+	inst._confirmed_players = {}
 	LoadPlayerStoreSaveData(inst, data ~= nil and data.playerstores or nil)
 
 	RefreshPartSymbols(inst)
@@ -669,6 +727,7 @@ local function fn()
 	inst.activatedonce = false
 	inst._playercontainers = {}
 	inst._playerstores = {}
+	inst._confirmed_players = {}
 
 	inst:AddComponent("inspectable")
 	inst.components.inspectable.getstatus = GetStatus
@@ -684,10 +743,16 @@ local function fn()
 	inst.components.trader.onaccept = ItemGet
 
 	inst.Adventure = TransitionToNextLevel
+	inst.SetPlayerActivation = SetPlayerActivation
 	inst.CheckNextLevelSure = CheckNextLevelSure
 	inst.OnSave = OnSave
 	inst.OnLoad = OnLoad
 	inst.OnRemoveEntity = RemovePlayerContainers
+	inst:ListenForEvent("ms_playerleft", function(_, player)
+		if player ~= nil and IsValidUserId(player.userid) then
+			inst._confirmed_players[player.userid] = nil
+		end
+	end, TheWorld)
 
 	RefreshPartSymbols(inst)
 	SyncPartNetvar(inst)

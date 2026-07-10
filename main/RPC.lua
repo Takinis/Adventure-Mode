@@ -254,7 +254,9 @@ AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
         return
     end
 
-    if data.active then
+    if inst:HasTag("teleportato") then
+        inst:SetPlayerActivation(player, data.active)
+    elseif data.active then
         inst:Adventure(player)
     elseif inst.components.activatable ~= nil then
         inst.components.activatable.inactive = true
