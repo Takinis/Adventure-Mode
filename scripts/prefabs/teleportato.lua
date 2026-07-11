@@ -388,7 +388,7 @@ local function AreAllPlayersNearby(inst)
 end
 
 local function TransitionToNextLevel(inst, doer)
-	if not TheWorld:IsAdventureActive() then
+	if not TheWorld.is_adventure then
 		return false
 	end
 
@@ -464,7 +464,7 @@ local function SetPlayerActivation(inst, doer, active)
 		return false
 	end
 
-	if not IsLivingPlayer(doer) or not TheWorld:IsAdventureActive() or
+	if not IsLivingPlayer(doer) or not TheWorld.is_adventure or
 		CountParts(inst) < PART_COUNT or inst._activating then
 		return false
 	end

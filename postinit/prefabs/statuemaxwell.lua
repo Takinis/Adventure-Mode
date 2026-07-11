@@ -10,7 +10,7 @@ AddPrefabPostInit("statuemaxwell", function(inst)
     local _statuemaxwell_fn = Prefabs["statuemaxwell"].fn
     local _doCharlieTest, scope_fn, i = ToolUtil.GetUpvalue(_statuemaxwell_fn, "doCharlieTest")
     local doCharlieTest = function(inst)
-        if ShardGameIndex.adventure:IsActive() then
+        if TheWorld.is_adventure then
             return
         end
 

@@ -2,8 +2,9 @@ local AddPrefabPostInit = AddPrefabPostInit
 GLOBAL.setfenv(1, GLOBAL)
 
 AddPrefabPostInit("forest", function(inst)
-    print("GLOBAL_SAVEDATA", GLOBAL_SAVEDATA)
-    if GLOBAL_SAVEDATA and GLOBAL_SAVEDATA.map and (GLOBAL_SAVEDATA.map.has_ocean == false) then
+    print("[Adventure Mode] forest prefab is_adventure =", TheWorld.is_adventure)
+
+    if inst.is_adventure then
         TheWorld.Map:AlwaysDrawWaves(true)
         -- if ShardGameIndex:GetAdventureState() and ShardGameIndex:GetAdventureState().current_preset == "ENDING" then -- 终章没有海洋特效
             -- TheWorld.Map:AlwaysDrawWaves(false)
@@ -25,7 +26,7 @@ AddPrefabPostInit("forest", function(inst)
         return
     end
 
-    if ShardGameIndex.adventure:IsActive() then
+    if inst.is_adventure then
         TheWorld:AddComponent("ad_frograin")
     end
 end)

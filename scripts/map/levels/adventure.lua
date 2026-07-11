@@ -46,6 +46,7 @@ function AdventureModeGetRandomSubstituteList(substitutes, num_choices)
 end
 
 function AddAdventureLevel(data)
+	data.overrides.is_adventure = true
 	AddLevel(LEVELTYPE.ADVENTURE, data)
 end
 

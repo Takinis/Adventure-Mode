@@ -38,7 +38,7 @@ local function GetAdventureTitleKey()
 end
 
 local function ShowAdventureTitle(inst, retries)
-    if not TheWorld:IsAdventureActive() then
+    if not TheWorld.is_adventure then
         return
     end
 

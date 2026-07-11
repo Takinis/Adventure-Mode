@@ -102,7 +102,7 @@ function c_adventure(level)
         return false
     end
 
-    if ShardGameIndex.adventure:IsActive() then
+    if TheWorld.is_adventure then
         print("[Adventure Mode] Adventure is already active. Return from it before starting a test level.")
         return false
     end
@@ -218,7 +218,7 @@ function c_returnworld(reason)
     return index:ReturnFromWorldSwitch(reason or "console_return")
 end
 
-function c_forestworld()
+function c_forest()
     return c_switchworld("forest")
 end
 
