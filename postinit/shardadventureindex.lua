@@ -15,8 +15,8 @@ local ADVENTURE_DEATH_CHECK_INITIAL_DELAY = 0.1
 local ADVENTURE_WORLD_SWITCH_FILE_ID = "adventure"
 local ADVENTURE_DARKNESS_LEVEL = "DARKNESS"
 local ADVENTURE_ENDING_LEVEL = "ENDING"
-local ADVENTURE_CORE_LEVEL_COUNT = 4
-local ADVENTURE_CORE_LEVELS =
+local ADVENTURE_LEVEL_COUNT = 4
+local ADVENTURE_LEVELS =
 {
     RAINY = true,
     WINTER = true,
@@ -117,7 +117,7 @@ local function build_adventure_playlist(levels)
                 max_playlist_position = type(level) == "table" and level.max_playlist_position or nil,
             }
             levels_by_key[key] = playlist_level
-            table.insert(ADVENTURE_CORE_LEVELS[key] and core_levels or extension_levels, playlist_level)
+            table.insert(ADVENTURE_LEVELS[key] and core_levels or extension_levels, playlist_level)
         end
     end
 
@@ -128,7 +128,7 @@ local function build_adventure_playlist(levels)
 
     local regular_levels = {}
     local ordered_core_levels = order_adventure_playlist_levels(core_levels)
-    for i = 1, math.min(ADVENTURE_CORE_LEVEL_COUNT, #ordered_core_levels) do
+    for i = 1, math.min(ADVENTURE_LEVEL_COUNT, #ordered_core_levels) do
         table.insert(regular_levels, levels_by_key[string.upper(ordered_core_levels[i])])
     end
     for _, level in ipairs(extension_levels) do
@@ -757,6 +757,7 @@ function ShardAdventureIndex:Begin(opts, cb)
         chapter = initial_chapter,
         keep_session = true,
         player_sessions = main_player_sessions,
+        fallback_player_sessions = false,
         return_position = opts.return_position,
         state = state,
     }, function(success)

@@ -28,6 +28,11 @@ local DEFAULT_SECONDARY_LEVEL =
         world_size = "small",
     },
 }
+local DEFAULT_VOLCANO_LEVEL =
+{
+    world_type = "volcano",
+    location = "volcano",
+}
 
 local function noop()
 end
@@ -302,7 +307,38 @@ local function normalize_position(pos)
         return nil
     end
 
-    return { x = x, y = y or 0, z = z }
+    return
+    {
+        x = x,
+        y = y or 0,
+        z = z,
+        puid = pos.puid,
+        rx = tonumber(pos.rx),
+        ry = tonumber(pos.ry),
+        rz = tonumber(pos.rz),
+    }
+end
+
+local function get_player_positions(sessions)
+    local positions = {}
+    for _, session in ipairs(sessions or {}) do
+        if session.userid ~= nil and session.userid ~= "" and type(session.data) == "string" then
+            local success, data = RunInSandboxSafe(session.data)
+            local position = success and normalize_position(data) or nil
+            if position ~= nil then
+                positions[session.userid] = position
+            end
+        end
+    end
+    return next(positions) ~= nil and positions or nil
+end
+
+local function merge_player_positions(existing, updates)
+    local positions = deepcopy_safe(existing) or {}
+    for userid, position in pairs(updates or {}) do
+        positions[userid] = deepcopy_safe(position)
+    end
+    return next(positions) ~= nil and positions or nil
 end
 
 local function get_spawn_position_from_savedata_str(savedata)
@@ -404,10 +440,10 @@ local function move_player_record_to_spawn(data, spawn, index)
     data.y = spawn.y
     data.z = (spawn.z or 0) + math.sin(angle) * radius
 
-    data.puid = nil
-    data.rx = nil
-    data.ry = nil
-    data.rz = nil
+    data.puid = spawn.puid
+    data.rx = spawn.rx
+    data.ry = spawn.ry
+    data.rz = spawn.rz
 
     if type(data.data) == "table" then
         data.data.migration = nil
@@ -447,7 +483,7 @@ local function inject_player_sessions_into_world(index, sessions, session_identi
     cb()
 end
 
-local function inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override)
+local function inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override, player_positions)
     cb = cb or noop
 
     if session_id == nil or session_id == "" or sessions == nil or #sessions <= 0 or not TheNet:GetIsServer() then
@@ -459,7 +495,8 @@ local function inject_player_sessions_into_existing_world(index, session_id, ses
         local spawn = normalize_position(spawn_override) or get_spawn_position_from_savedata_str(savedata)
         TheNet:BeginSession(session_id)
         for i, session in ipairs(sessions) do
-            local data = build_migrated_user_session_data(session, spawn, i)
+            local saved_position = player_positions ~= nil and normalize_position(player_positions[session.userid]) or nil
+            local data = build_migrated_user_session_data(session, saved_position or spawn, saved_position ~= nil and 1 or i)
             TheNet:SerializeUserSession(session.userid, data, false, get_player_classified_entity(session.userid), session.metadata or "")
         end
         cb()
@@ -709,7 +746,17 @@ local function get_level_for_shard(level, shardid)
         if type(shard_levels) == "table" then
             return shard_levels[shardid] or shard_levels.Caves or shard_levels.caves or shard_levels.secondary or shard_levels.default
         end
-        return level.secondary or level.cave or level.caves or level.placeholder or DEFAULT_SECONDARY_LEVEL
+        local secondary_level = level.secondary or level.cave or level.caves or level.placeholder
+        if secondary_level ~= nil then
+            return secondary_level
+        end
+
+        local world_type = normalize_world_type(level.world_type or level.location or level.dlc or level.mode)
+        if world_type == "shipwrecked" then
+            return DEFAULT_VOLCANO_LEVEL
+        elseif world_type == "cave" or world_type == "volcano" then
+            return level
+        end
     end
 
     return DEFAULT_SECONDARY_LEVEL
@@ -809,6 +856,58 @@ end
 
 local function get_level_world_type(level)
     return type(level) == "table" and normalize_world_type(level.world_type or level.location or level.dlc or level.mode) or nil
+end
+
+local function resolve_level_world_type(level)
+    local world_type = get_level_world_type(level)
+    if world_type ~= nil then
+        return world_type
+    end
+
+    local preset_id = get_worldgen_preset_id(level)
+    if preset_id == nil then
+        return nil
+    end
+
+    return get_level_world_type(find_level_data_by_id(require("map/levels"), preset_id))
+end
+
+local function get_stored_world_type(stored_world)
+    if type(stored_world) ~= "table" then
+        return nil
+    end
+
+    local world_type = normalize_world_type(stored_world.world_type)
+    if world_type ~= nil then
+        return world_type
+    end
+
+    local world = stored_world.world
+    world_type = resolve_level_world_type(type(world) == "table" and world.options or nil)
+    if world_type ~= nil then
+        return world_type
+    end
+
+    return resolve_level_world_type(get_savedata_table(stored_world.worldgenoverride))
+end
+
+local function get_runtime_world_type()
+    if TheWorld == nil then
+        return nil
+    end
+
+    for _, world_type in ipairs({ "porkland", "volcano", "shipwrecked", "cave", "forest" }) do
+        if TheWorld:HasTag(world_type) then
+            return world_type
+        end
+    end
+
+    local prefab = normalize_world_type(TheWorld.prefab)
+    for _, world_type in pairs(WORLD_TYPE_LOCATION) do
+        if prefab == world_type then
+            return world_type
+        end
+    end
 end
 
 local function worldgen_preset_exists(levels, preset)
@@ -958,28 +1057,39 @@ local function delete_session_if_not_home(session_id, home_session_id)
     end
 end
 
-local DEFAULT_WORLD_SWITCH_FILE_ID = "world"
 local ADVENTURE_WORLD_SWITCH_FILE_ID = "adventure"
 local WORLD_SWITCH_KNOWN_FILE_IDS =
 {
-    DEFAULT_WORLD_SWITCH_FILE_ID,
-    ADVENTURE_WORLD_SWITCH_FILE_ID,
-    "forest",
-    "cave",
-    "caves",
-    "shipwrecked",
-    "volcano",
-    "porkland",
+    Master =
+    {
+        "forest",
+        "shipwrecked",
+        "porkland",
+    },
+    Caves =
+    {
+        "caves",
+        "volcano",
+    },
+}
+local SECONDARY_WORLD_SWITCH_FILE_IDS =
+{
+    forest = "caves",
+    cave = "caves",
+    caves = "caves",
+    shipwrecked = "volcano",
+    volcano = "volcano",
+    porkland = "caves",
 }
 
 local function normalize_world_switch_file_id(file_id)
     if file_id == nil or file_id == "" then
-        return DEFAULT_WORLD_SWITCH_FILE_ID
+        return "world"
     end
 
     file_id = string.lower(tostring(file_id)):gsub("[^%w_%-]", "_")
     file_id = file_id:gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
-    return file_id ~= "" and file_id or DEFAULT_WORLD_SWITCH_FILE_ID
+    return file_id ~= "" and file_id or "world"
 end
 
 local function add_world_switch_file_id(list, seen, file_id)
@@ -990,20 +1100,47 @@ local function add_world_switch_file_id(list, seen, file_id)
     end
 end
 
-local function get_known_world_switch_file_ids(extra_file_id)
+local function get_world_switch_file_id_for_shard(file_id, shardid)
+    file_id = normalize_world_switch_file_id(file_id)
+    return not is_master_shard_id(shardid) and SECONDARY_WORLD_SWITCH_FILE_IDS[file_id] or file_id
+end
+
+local function is_known_world_switch_file_id(file_id, shardid)
+    if file_id == ADVENTURE_WORLD_SWITCH_FILE_ID then
+        return true
+    end
+
+    local known_ids = is_master_shard_id(shardid) and WORLD_SWITCH_KNOWN_FILE_IDS.Master or WORLD_SWITCH_KNOWN_FILE_IDS.Caves
+    for _, known_file_id in ipairs(known_ids) do
+        if file_id == known_file_id then
+            return true
+        end
+    end
+    return false
+end
+
+local function get_known_world_switch_file_ids(index, extra_file_id)
     local ids = {}
     local seen = {}
+    local shardid = index ~= nil and get_index_shard(index) or "Master"
+
+    local function add_known_file_id(file_id)
+        file_id = get_world_switch_file_id_for_shard(file_id, shardid)
+        if is_known_world_switch_file_id(file_id, shardid) then
+            add_world_switch_file_id(ids, seen, file_id)
+        end
+    end
 
     if extra_file_id ~= nil then
-        add_world_switch_file_id(ids, seen, extra_file_id)
+        add_known_file_id(extra_file_id)
     end
     if Settings ~= nil and Settings.world_switch_file_id ~= nil then
-        add_world_switch_file_id(ids, seen, Settings.world_switch_file_id)
+        add_known_file_id(Settings.world_switch_file_id)
     end
-    for _, file_id in ipairs(WORLD_SWITCH_KNOWN_FILE_IDS) do
-        add_world_switch_file_id(ids, seen, file_id)
-    end
-    for _, file_id in pairs(WORLD_TYPE_LOCATION) do
+    add_world_switch_file_id(ids, seen, ADVENTURE_WORLD_SWITCH_FILE_ID)
+
+    local known_ids = is_master_shard_id(shardid) and WORLD_SWITCH_KNOWN_FILE_IDS.Master or WORLD_SWITCH_KNOWN_FILE_IDS.Caves
+    for _, file_id in ipairs(known_ids) do
         add_world_switch_file_id(ids, seen, file_id)
     end
 
@@ -1014,6 +1151,21 @@ local function get_world_switch_home_state(state)
     return state ~= nil and (state.home or state.main) or nil
 end
 
+local function set_player_positions_for_session(state, session_id, player_positions)
+    if state == nil then
+        return
+    end
+
+    state.player_positions = merge_player_positions(state.player_positions, player_positions)
+    local home = get_world_switch_home_state(state)
+    if home ~= nil and home.session_id == session_id then
+        home.player_positions = merge_player_positions(home.player_positions, player_positions)
+        if state.main ~= nil then
+            state.main.player_positions = merge_player_positions(state.main.player_positions, player_positions)
+        end
+    end
+end
+
 local function ensure_world_switch_home_aliases(state)
     if state ~= nil then
         state.file_id = normalize_world_switch_file_id(state.file_id)
@@ -1021,6 +1173,12 @@ local function ensure_world_switch_home_aliases(state)
             state.home = state.main
         elseif state.main == nil and state.home ~= nil then
             state.main = state.home
+        end
+        if state.home ~= nil and state.home.player_positions == nil then
+            state.home.player_positions = get_player_positions(state.home.player_sessions)
+        end
+        if state.main ~= nil and state.main.player_positions == nil then
+            state.main.player_positions = get_player_positions(state.main.player_sessions)
         end
     end
     return state
@@ -1087,7 +1245,7 @@ local function read_world_switch_sidecar(index, cb, file_id)
         return
     end
 
-    local ids = get_known_world_switch_file_ids(index.world_switch_state ~= nil and index.world_switch_state.file_id or nil)
+    local ids = get_known_world_switch_file_ids(index, index.world_switch_state ~= nil and index.world_switch_state.file_id or nil)
     local active_state = nil
     local active_state_matches_session = false
     local i = 1
@@ -1240,7 +1398,7 @@ end
 
 local function clear_all_world_switch_sidecars(index, cb)
     cb = cb or noop
-    local ids = get_known_world_switch_file_ids(index.world_switch_state ~= nil and index.world_switch_state.file_id or nil)
+    local ids = get_known_world_switch_file_ids(index, index.world_switch_state ~= nil and index.world_switch_state.file_id or nil)
     local i = 1
 
     local function clear_next()
@@ -1316,8 +1474,7 @@ end
 
 local function build_world_switch_home_state(index, worldgenoverride, opts)
     opts = opts or {}
-    return
-    {
+    local home = {
         session_id = opts.session_id or index:GetSession(),
         worldgenoverride = worldgenoverride,
         world = deepcopy_safe(index.world),
@@ -1325,7 +1482,10 @@ local function build_world_switch_home_state(index, worldgenoverride, opts)
         enabled_mods = deepcopy_safe(index.enabled_mods),
         return_position = opts.return_position or get_return_position(),
         player_sessions = opts.player_sessions,
+        player_positions = get_player_positions(opts.player_sessions),
     }
+    home.world_type = get_stored_world_type(home) or get_runtime_world_type()
+    return home
 end
 
 local function build_generation_recovery_state(index, state, source_session_id)
@@ -1535,6 +1695,7 @@ local function normalize_world_switch_existing_target(index, target)
         enabled_mods = deepcopy_safe(target.enabled_mods) or deepcopy_safe(index.enabled_mods) or {},
         return_position = target.return_position,
         player_sessions = deepcopy_safe(target.player_sessions),
+        player_positions = deepcopy_safe(target.player_positions) or get_player_positions(target.player_sessions),
         cleanup_on_return = target.cleanup_on_return == true,
         world_type = normalize_world_type(target.world_type or target.location or target.dlc or target.mode),
         id = target.id,
@@ -1567,6 +1728,64 @@ local function get_world_switch_target_id(target)
     return get_world_switch_preset_id(target.level) or
         get_world_switch_preset_id(target.current_preset) or
         target.world_type
+end
+
+local function get_current_world_type(index)
+    local session_id = index ~= nil and index:GetSession() or nil
+    local state = get_world_switch_state(index)
+    if state ~= nil and state.current_session_id == session_id then
+        local current_target = normalize_world_switch_target(state.current_target)
+        local world_type = normalize_world_type(state.world_type)
+        if world_type == nil and current_target ~= nil then
+            world_type = resolve_level_world_type(get_world_switch_generated_level(current_target, get_index_shard(index))) or
+                current_target.world_type
+        end
+        if world_type ~= nil then
+            return world_type
+        end
+    end
+
+    return get_runtime_world_type() or get_stored_world_type({ world = index.world })
+end
+
+local function is_current_world_target(index, target)
+    target = normalize_world_switch_target(target)
+    if index == nil or target == nil then
+        return false
+    end
+
+    if target.type == "existing" then
+        return target.session_id ~= nil and target.session_id == index:GetSession()
+    end
+
+    local target_world_type = resolve_level_world_type(get_world_switch_generated_level(target, get_index_shard(index))) or
+        target.world_type
+    return target_world_type ~= nil and target_world_type == get_current_world_type(index)
+end
+
+local function reject_current_world_target(index, target, kind)
+    if kind ~= "adventure" and is_current_world_target(index, target) then
+        print("[Shard World Index] Already in target world "..tostring(get_world_switch_target_id(target)).."; switch refused.")
+        return true
+    end
+    return false
+end
+
+local function reject_unavailable_world_target(index, target, kind)
+    target = normalize_world_switch_target(target)
+    if kind == "adventure" or target == nil or target.type == "existing" then
+        return false
+    end
+
+    local shardid = get_index_shard(index)
+    local level = get_world_switch_generated_level(target, shardid)
+    local world_type = resolve_level_world_type(level)
+    local file_id = get_world_switch_file_id_for_shard(world_type, shardid)
+    if not is_known_world_switch_file_id(file_id, shardid) then
+        print("[Shard World Index] World type "..tostring(world_type).." is not available on shard "..tostring(shardid)..".")
+        return true
+    end
+    return false
 end
 
 local function should_regenerate_current_world_switch_session(index, state)
@@ -1645,29 +1864,26 @@ local function prepare_current_world_switch_regen(index, state, cb)
     return true
 end
 
-local function get_world_switch_target_file_id(target, fallback)
+local function get_world_switch_target_file_id(target, fallback, shardid)
     target = normalize_world_switch_target(target)
+    local file_id = fallback
     if target ~= nil then
         if target.file_id ~= nil then
-            return normalize_world_switch_file_id(target.file_id)
-        end
-        if target.world_type ~= nil then
-            return normalize_world_switch_file_id(target.world_type)
-        end
-        if target.type == "existing" then
-            return normalize_world_switch_file_id(target.id or fallback)
-        end
-        local level = target.level or target.current_preset
-        if type(level) == "table" then
-            local world_type = normalize_world_type(level.world_type or level.location or level.dlc or level.mode)
-            if world_type ~= nil then
-                return normalize_world_switch_file_id(world_type)
+            file_id = target.file_id
+        elseif target.world_type ~= nil then
+            file_id = target.world_type
+        elseif target.type == "existing" then
+            file_id = target.id or fallback
+        else
+            local level = target.level or target.current_preset
+            if type(level) == "table" then
+                file_id = normalize_world_type(level.world_type or level.location or level.dlc or level.mode)
             end
+            file_id = file_id or get_world_switch_target_id(target) or fallback
         end
-        return normalize_world_switch_file_id(get_world_switch_target_id(target) or fallback)
     end
 
-    return normalize_world_switch_file_id(fallback)
+    return get_world_switch_file_id_for_shard(file_id, shardid)
 end
 
 local function get_world_switch_target_from_opts(opts, state)
@@ -1811,7 +2027,7 @@ local function finish_generated_world_switch(index, state, session_identifier, s
         end
 
         if use_existing_world then
-            inject_player_sessions_into_existing_world(index, session_identifier, state.player_sessions, on_players_injected)
+            inject_player_sessions_into_existing_world(index, session_identifier, state.player_sessions, on_players_injected, nil, state.player_positions)
         else
             inject_player_sessions_into_world(index, state.player_sessions, session_identifier, savedata, on_players_injected)
         end
@@ -1891,6 +2107,7 @@ local function commit_world_switch_existing_target(index, state, target, cb)
     state.current_world = deepcopy_safe(target.world) or state.current_world
     state.current_server = deepcopy_safe(target.server) or state.current_server
     state.current_enabled_mods = deepcopy_safe(target.enabled_mods) or state.current_enabled_mods
+    state.player_positions = deepcopy_safe(target.player_positions)
     state.file_id = target_file_id
     set_world_switch_state(index, state)
 
@@ -1912,7 +2129,7 @@ local function commit_world_switch_existing_target(index, state, target, cb)
                         write_world_switch_sidecar(index, state, function()
                             cb(true)
                         end)
-                    end)
+                    end, nil, target.player_positions)
                 else
                     if should_cleanup_world_switch_session(state) and
                         cleanup_session_id ~= nil and cleanup_session_id ~= "" and cleanup_session_id ~= target.session_id then
@@ -1947,6 +2164,8 @@ local function commit_world_switch_generated_target(index, state, target, keep_s
         return
     end
 
+    local level_world_type = resolve_level_world_type(level)
+
     local valid, reason = validate_world_switch_generated_level(level)
     if not valid then
         print("[Shard World Index] Refusing to switch world: "..tostring(reason)..".")
@@ -1957,42 +2176,78 @@ local function commit_world_switch_generated_target(index, state, target, keep_s
     local file_id = state.file_id
     if not state.checked_existing_world and target.reuse_existing ~= false and state.reuse_existing ~= false then
         state.checked_existing_world = true
-        read_world_switch_sidecar(index, function(existing_state)
-            local session_id = existing_state ~= nil and existing_state.current_session_id or nil
-            if session_id == nil or session_id == "" then
-                commit_world_switch_generated_target(index, state, target, keep_session, cb)
-                return
-            end
 
-        world_session_exists(index, session_id, function(exists)
-            if exists then
-                local existing_target =
-                {
+        local function generate_target()
+            commit_world_switch_generated_target(index, state, target, keep_session, cb)
+        end
+
+        local function reuse_target(existing_target)
+            state.checked_existing_world = nil
+            state.generated = existing_target.generated == true or nil
+            state.generated_target = normalize_world_switch_target(target)
+            state.cleanup_current_on_return = false
+            commit_world_switch_existing_target(index, state, existing_target, cb)
+        end
+
+        local function check_existing_sidecar()
+            read_world_switch_sidecar(index, function(existing_state)
+                local session_id = existing_state ~= nil and existing_state.current_session_id or nil
+                if session_id == nil or session_id == "" then
+                    generate_target()
+                    return
+                end
+
+                world_session_exists(index, session_id, function(exists)
+                    if exists then
+                        reuse_target({
+                            type = "existing",
+                            id = existing_state.current_preset or get_world_switch_target_id(target),
+                            session_id = session_id,
+                            worldgenoverride = existing_state.current_worldgenoverride or build_level_worldgenoverride_raw(level),
+                            world = existing_state.current_world or { options = resolve_level_options(level) },
+                            server = existing_state.current_server,
+                            enabled_mods = existing_state.current_enabled_mods,
+                            world_type = existing_state.world_type or target.world_type,
+                            player_positions = existing_state.player_positions,
+                            generated = true,
+                            cleanup_on_return = false,
+                        })
+                    else
+                        existing_state.current_session_id = nil
+                        existing_state.active = false
+                        write_world_switch_sidecar(index, existing_state, generate_target, file_id)
+                    end
+                end)
+            end, file_id)
+        end
+
+        local home = get_world_switch_home_state(state)
+        local home_world_type = get_stored_world_type(home)
+        local target_world_type = target.world_type or resolve_level_world_type(level)
+        if home_world_type ~= nil and home_world_type == target_world_type and
+            home.session_id ~= nil and home.session_id ~= "" then
+            world_session_exists(index, home.session_id, function(exists)
+                if exists then
+                    print("[Shard World Index] Reusing stored home world for "..tostring(target_world_type)..".")
+                    reuse_target({
                         type = "existing",
-                        id = existing_state.current_preset or get_world_switch_target_id(target),
-                        session_id = session_id,
-                        worldgenoverride = existing_state.current_worldgenoverride or build_level_worldgenoverride_raw(level),
-                        world = existing_state.current_world or { options = resolve_level_options(level) },
-                        server = existing_state.current_server,
-                        enabled_mods = existing_state.current_enabled_mods,
-                        world_type = existing_state.world_type or target.world_type,
-                        generated = true,
+                        id = get_world_switch_target_id(target),
+                        session_id = home.session_id,
+                        worldgenoverride = home.worldgenoverride or build_level_worldgenoverride_raw(level),
+                        world = home.world or { options = resolve_level_options(level) },
+                        server = home.server,
+                        enabled_mods = home.enabled_mods,
+                        world_type = home_world_type,
+                        player_positions = home.player_positions,
                         cleanup_on_return = false,
-                    }
-
-                    state.generated = true
-                    state.generated_target = normalize_world_switch_target(target)
-                    state.cleanup_current_on_return = false
-                    commit_world_switch_existing_target(index, state, existing_target, cb)
+                    })
                 else
-                    existing_state.current_session_id = nil
-                    existing_state.active = false
-                    write_world_switch_sidecar(index, existing_state, function()
-                        commit_world_switch_generated_target(index, state, target, keep_session, cb)
-                    end, file_id)
+                    check_existing_sidecar()
                 end
             end)
-        end, file_id)
+        else
+            check_existing_sidecar()
+        end
         return
     end
     state.checked_existing_world = nil
@@ -2005,6 +2260,7 @@ local function commit_world_switch_generated_target(index, state, target, keep_s
     state.generation_recovery_state = state.generation_recovery_state or
         build_generation_recovery_state(index, state, state.generation_source_session_id)
     state.current_session_id = nil
+    state.player_positions = nil
     set_world_switch_state(index, state)
     switch_index_to_generated_world(index, level, keep_session ~= false)
 
@@ -2012,7 +2268,7 @@ local function commit_world_switch_generated_target(index, state, target, keep_s
     write_worldgenoverride_str(index, worldgenoverride, function()
         state.generated = true
         state.generated_target = normalize_world_switch_target(target)
-        state.world_type = target.world_type
+        state.world_type = level_world_type
         state.current_worldgenoverride = worldgenoverride
         state.current_world = deepcopy_safe(index.world)
         state.current_server = deepcopy_safe(index.server)
@@ -2032,7 +2288,8 @@ local function commit_world_switch_target(index, state, target, keep_session, cb
         cb(false)
         return
     end
-    state.file_id = normalize_world_switch_file_id(state.file_id or get_world_switch_target_file_id(target))
+    local shardid = get_index_shard(index)
+    state.file_id = get_world_switch_file_id_for_shard(state.file_id or get_world_switch_target_file_id(target, nil, shardid), shardid)
 
     if target.type == "existing" then
         commit_world_switch_existing_target(index, state, target, cb)
@@ -2175,7 +2432,7 @@ local function read_named_world_switch_sidecar_in_slot(slot, file_id)
 end
 
 local function read_world_switch_sidecar_in_slot(slot)
-    local ids = get_known_world_switch_file_ids()
+    local ids = get_known_world_switch_file_ids(nil)
     for _, file_id in ipairs(ids) do
         local state = read_named_world_switch_sidecar_in_slot(slot, file_id)
         if world_switch_state_reserves_slot(state) then
@@ -2267,9 +2524,9 @@ function ShardWorldIndex:InjectPlayerSessionsIntoWorld(index, sessions, session_
     inject_player_sessions_into_world(index, sessions, session_identifier, savedata, cb)
 end
 
-function ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, session_id, sessions, cb, spawn_override)
-    index, session_id, sessions, cb, spawn_override = resolve_index_args(self, index, session_id, sessions, cb, spawn_override)
-    inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override)
+function ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, session_id, sessions, cb, spawn_override, player_positions)
+    index, session_id, sessions, cb, spawn_override, player_positions = resolve_index_args(self, index, session_id, sessions, cb, spawn_override, player_positions)
+    inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override, player_positions)
 end
 
 function ShardWorldIndex:WorldSessionExists(index, session_id, cb)
@@ -2514,12 +2771,18 @@ function ShardWorldIndex:BeginWorldSwitch(index, opts, cb)
         cb(false)
         return
     end
-    local file_id = normalize_world_switch_file_id(opts.file_id or get_world_switch_target_file_id(target))
+    if reject_unavailable_world_target(index, target, opts.kind) or
+        reject_current_world_target(index, target, opts.kind) then
+        cb(false)
+        return
+    end
+    local shardid = get_index_shard(index)
+    local file_id = get_world_switch_file_id_for_shard(opts.file_id or get_world_switch_target_file_id(target, nil, shardid), shardid)
 
     read_worldgenoverride_raw(index, function(home_wgo)
         local state = deepcopy_safe(opts.state) or {}
         state.active = true
-        state.file_id = normalize_world_switch_file_id(state.file_id or file_id)
+        state.file_id = get_world_switch_file_id_for_shard(state.file_id or file_id, shardid)
         state.kind = state.kind or opts.kind or "world_switch"
         state.reuse_existing = opts.reuse_existing ~= false
         if opts.secondary == true then
@@ -2543,7 +2806,9 @@ function ShardWorldIndex:BeginWorldSwitch(index, opts, cb)
             player_sessions = collect_player_sessions()
         end
         opts.player_sessions = player_sessions
-        state.player_sessions = state.player_sessions or player_sessions
+        if state.player_sessions == nil and opts.fallback_player_sessions ~= false then
+            state.player_sessions = player_sessions
+        end
 
         local home = state.home or state.main or build_world_switch_home_state(index, home_wgo, opts)
         state.home = home
@@ -2584,8 +2849,14 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
         cb(false)
         return
     end
+    if reject_unavailable_world_target(index, target, state.kind) or
+        reject_current_world_target(index, target, state.kind) then
+        cb(false)
+        return
+    end
+    local shardid = get_index_shard(index)
     local current_file_id = normalize_world_switch_file_id(state.file_id)
-    local queued_file_id = normalize_world_switch_file_id(opts.file_id or get_world_switch_target_file_id(target) or state.file_id)
+    local queued_file_id = get_world_switch_file_id_for_shard(opts.file_id or get_world_switch_target_file_id(target, state.file_id, shardid), shardid)
     local previous_state = nil
     if queued_file_id ~= current_file_id then
         previous_state = deepcopy_safe(state)
@@ -2597,6 +2868,13 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
     local player_sessions = pending.player_sessions or opts.player_sessions
     if player_sessions == nil and not state.secondary and opts.collect_player_sessions ~= false then
         player_sessions = collect_player_sessions()
+    end
+    if state.kind ~= "adventure" then
+        local player_positions = get_player_positions(player_sessions)
+        set_player_positions_for_session(state, index:GetSession(), player_positions)
+        if previous_state ~= nil then
+            set_player_positions_for_session(previous_state, index:GetSession(), player_positions)
+        end
     end
     pending.reason = pending.reason or opts.reason or "advance"
     pending.chapter = pending.chapter or opts.chapter
@@ -2661,6 +2939,7 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
             state.current_enabled_mods = nil
             state.generated = nil
             state.generated_target = nil
+            state.player_positions = nil
 
             if existing_state ~= nil and existing_state.current_session_id ~= nil and existing_state.current_session_id ~= "" then
                 state.current_session_id = existing_state.current_session_id
@@ -2672,6 +2951,7 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
                 state.generated = existing_state.generated == true or nil
                 state.generated_target = deepcopy_safe(existing_state.generated_target)
                 state.world_type = existing_state.world_type or state.world_type
+                state.player_positions = deepcopy_safe(existing_state.player_positions)
             end
 
             write_world_switch_sidecar(index, state, commit_queued_state)
@@ -2692,6 +2972,11 @@ function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions)
         print("[Shard World Index] No active world switch to return from.")
         cb(false)
         return
+    end
+
+    local player_positions = get_player_positions(player_sessions or state.return_player_sessions)
+    if player_positions ~= nil then
+        set_player_positions_for_session(state, index:GetSession(), player_positions)
     end
 
     if should_cleanup_world_switch_session(state) then
@@ -2720,7 +3005,7 @@ function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions)
             state.return_player_sessions = nil
             state.last_player_session_injected = home.session_id
             save_return_state()
-        end, home.return_position)
+        end, home.return_position, home.player_positions)
         return
     end
 
@@ -2738,6 +3023,13 @@ function ShardWorldIndex:StartWorldSwitch(index, opts)
     end
 
     opts = opts or {}
+
+    local target = get_world_switch_target_from_opts(opts)
+    if target ~= nil and
+        (reject_unavailable_world_target(index, target, opts.kind) or
+        reject_current_world_target(index, target, opts.kind)) then
+        return false
+    end
 
     local function begin_after_save()
         if opts.kind ~= "adventure" and opts.player_sessions == nil and opts.collect_player_sessions ~= false then
@@ -2779,6 +3071,17 @@ function ShardWorldIndex:AdvanceWorldSwitch(index, opts)
     end
 
     opts = opts or {}
+
+    local state = get_world_switch_state(index)
+    local target = get_world_switch_target_from_opts(opts, state)
+    if target == nil and opts.chapter ~= nil and type(state.level_sequence) == "table" then
+        target = normalize_world_switch_target(get_level_for_shard(state.level_sequence[opts.chapter], get_index_shard(index)))
+    end
+    if target ~= nil and
+        (reject_unavailable_world_target(index, target, state.kind) or
+        reject_current_world_target(index, target, state.kind)) then
+        return false
+    end
 
     local function advance_after_save()
         self:QueueNextWorld(index, opts, function(success)
