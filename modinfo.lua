@@ -4,7 +4,7 @@ end
 
 name = en_zh("Adventure Mode", "冒险模式")
 description = ""
-author = "Sydney, Ardent"
+author = "Sydney & Ardent"
 forumthread = ""
 
 version = "1.0"

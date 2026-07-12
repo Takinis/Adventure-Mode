@@ -1,3 +1,4 @@
+local AddSimPostInit = AddSimPostInit
 local LoadPOFile = LoadPOFile
 GLOBAL.setfenv(1, GLOBAL)
 
@@ -5,6 +6,16 @@ local locale = LOC.GetLocaleCode()
 local is_chinese = locale == "zh" or locale == "zhr" or locale == "zht"
 
 STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER = "Chapter %d of %d"
+
+STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE = "Everyone is dead. Everyone will return to the main world in: %d"
+STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE = "Return Now"
+
+AddSimPostInit(function()
+    if TheWorld.is_adventure then
+        STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG = STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE
+        STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON = STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE
+    end
+end)
 
 if is_chinese then
     LoadPOFile("strings/chinese.po", locale)

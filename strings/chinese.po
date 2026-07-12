@@ -15,3 +15,15 @@ msgstr ""
 msgctxt "STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER"
 msgid "Chapter %d of %d"
 msgstr "第%d/%d章"
+
+#. STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE
+#, lua-format
+msgctxt "STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE"
+msgid "Everyone is dead. Everyone will return to the main world in: %d"
+msgstr "每个人都死了。所有人即将返回：%d"
+
+#. STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE
+#, lua-format
+msgctxt "STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE"
+msgid "Return Now"
+msgstr "现在返回"
