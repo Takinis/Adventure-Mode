@@ -93,12 +93,6 @@ local function OnAdventurePlayerDeactivated(inst)
     ShardGameIndex.adventure:OnPlayerDeactivated(inst)
 end
 
-local function OnAdventurePlayerDeath(inst)
-    if TheWorld ~= nil and TheWorld.StartAdventureDeathCheck ~= nil then
-        TheWorld:StartAdventureDeathCheck()
-    end
-end
-
 AddPlayerPostInit(function(inst)
     RememberStartingInventory(inst)
 
@@ -107,8 +101,6 @@ AddPlayerPostInit(function(inst)
             inst:AddComponent("maxwellintrospawner")
         end
 
-        inst:ListenForEvent("death", OnAdventurePlayerDeath)
-        inst:ListenForEvent("ms_becameghost", OnAdventurePlayerDeath)
         inst:ListenForEvent("playeractivated", OnAdventurePlayerActivated)
         inst:ListenForEvent("playerdeactivated", OnAdventurePlayerDeactivated)
         inst:ListenForEvent("playeractivated", ShowAdventureTitle)

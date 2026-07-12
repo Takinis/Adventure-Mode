@@ -16,7 +16,9 @@ local components_posts = {
     "colourcube",
     "worldstate",
     "weather",
+    "moisture",
     "frograin",
+    "worldreset",
 }
 
 local stategraphs_posts = {

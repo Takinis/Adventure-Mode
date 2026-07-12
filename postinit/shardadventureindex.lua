@@ -10,8 +10,6 @@ ShardAdventureIndex = Class(function(self, index)
     self.index = index
 end)
 
-local ADVENTURE_DEATH_CHECK_POLL_INTERVAL = 0.25
-local ADVENTURE_DEATH_CHECK_INITIAL_DELAY = 0.1
 local ADVENTURE_WORLD_SWITCH_FILE_ID = "adventure"
 local ADVENTURE_DARKNESS_LEVEL = "DARKNESS"
 local ADVENTURE_ENDING_LEVEL = "ENDING"
@@ -183,12 +181,6 @@ local get_adventure_state
 
 local player_starting_inventory = {}
 
-local function player_is_dead_or_ghost(player)
-    return player ~= nil and
-        (player:HasTag("playerghost") or
-        (player.components.health ~= nil and player.components.health:IsDead()))
-end
-
 local give_adventure_first_chapter_start_inv
 
 local function inject_late_joiners_into_main_world(index, state, cb)
@@ -272,31 +264,6 @@ local function on_adventure_player_deactivated(index, inst)
     cache_adventure_player_session(index, inst, false)
 end
 
-local function all_adventure_players_dead()
-    if TheWorld == nil or not TheWorld.ismastersim or not ShardWorldIndex:IsMasterShard() then
-        return false
-    end
-
-    local total = 0
-    local alive = 0
-    if AllPlayers ~= nil then
-        for _, player in ipairs(AllPlayers) do
-            if player.userid ~= nil and player.userid ~= "" then
-                total = total + 1
-                if not player_is_dead_or_ghost(player) then
-                    alive = alive + 1
-                end
-            end
-        end
-    end
-
-    local secondary_players, secondary_ghosts = ShardWorldIndex:GetSecondaryShardPlayerCounts()
-    total = total + secondary_players
-    alive = alive + math.max(secondary_players - secondary_ghosts, 0)
-
-    return total > 0 and alive <= 0
-end
-
 local function send_force_players_to_master_rpc()
     ShardWorldIndex:SendForcePlayersToMasterRPC("AdventureMode", "ForcePlayersToMaster")
 end
@@ -347,47 +314,6 @@ local function restart_current_slot_after_shard_rpc(index, extra_params)
     extra_params = extra_params or {}
     extra_params.world_switch_file_id = ADVENTURE_WORLD_SWITCH_FILE_ID
     index.worldindex:RestartCurrentSlotAfterShardRPC(extra_params)
-end
-
-local adventure_death_check_task = nil
-
-local function schedule_adventure_death_check(index, inst)
-    if adventure_death_check_task ~= nil then
-        return
-    end
-
-    local function check()
-        adventure_death_check_task = nil
-
-        local state = get_adventure_state(index)
-        if state == nil or not state.active then
-            return
-        end
-
-        if all_adventure_players_dead() then
-            index.adventure:ReturnFromShard("death")
-            return
-        end
-
-        if TheWorld ~= nil then
-            adventure_death_check_task = TheWorld:DoTaskInTime(ADVENTURE_DEATH_CHECK_POLL_INTERVAL, check)
-        end
-    end
-
-    local scheduler = TheWorld or inst
-    if scheduler ~= nil then
-        adventure_death_check_task = scheduler:DoTaskInTime(ADVENTURE_DEATH_CHECK_INITIAL_DELAY, check)
-    end
-end
-
-local function on_player_death(index, inst)
-    if TheWorld == nil or not TheWorld.ismastersim or not ShardWorldIndex:IsMasterShard() then
-        return
-    end
-    local state = get_adventure_state(index)
-    if state ~= nil and state.active then
-        schedule_adventure_death_check(index, inst)
-    end
 end
 
 local function get_adventure_preset_id(preset)
@@ -556,16 +482,6 @@ end
 
 function ShardAdventureIndex:OnPlayerDeactivated(inst)
     on_adventure_player_deactivated(self.index, inst)
-end
-
-function ShardAdventureIndex:OnPlayerDeath(inst)
-    on_player_death(self.index, inst)
-end
-
-function ShardAdventureIndex:StartDeathCheck(inst)
-    if TheWorld ~= nil and TheWorld.ismastersim and ShardWorldIndex:IsMasterShard() and self:IsActive() then
-        schedule_adventure_death_check(self.index, inst or TheWorld)
-    end
 end
 
 function ShardAdventureIndex:RememberStartingInventory(inst)
