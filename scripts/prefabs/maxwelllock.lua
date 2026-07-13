@@ -30,7 +30,8 @@ local function OnUnlock(inst, key, doer)
     if doer ~= nil and doer.userid ~= nil then
         inst._unlock_pending = true
         inst.AnimState:PlayAnimation("idle_empty")
-        SendModRPCToClient(GetClientModRPC("AdventureMode", "UnlockMaxwell"), doer.userid, inst.GUID)
+        local character = throne.isMaxwell and "waxwell" or throne.puppet._puppet_character:value()
+        SendModRPCToClient(GetClientModRPC("AdventureMode", "UnlockMaxwell"), doer.userid, inst.GUID, character)
     else
         inst.AnimState:PlayAnimation("idle_full")
         inst._pending_key = nil

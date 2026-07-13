@@ -342,25 +342,16 @@ end)
 
 local PopupDialogScreen = require "screens/redux/popupdialog"
 local BigPopupDialogScreen = require "screens/bigpopupdialog"
-AddClientModRPCHandler("AdventureMode", "UnlockMaxwell", function(guid)
-    if type(guid) ~= "number" then
+AddClientModRPCHandler("AdventureMode", "UnlockMaxwell", function(guid, character)
+    if type(guid) ~= "number" or type(character) ~= "string" or character == "" then
         return
     end
 
-    local character = ThePlayer ~= nil and ThePlayer.prefab or "wilson"
-    local title = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.TITLE or "Unlock Maxwell?"
-    local body
-
-    if STRINGS.UI.UNLOCKMAXWELL ~= nil and
-        STRINGS.UI.UNLOCKMAXWELL.BODY1 ~= nil and
-        STRINGS.UI.UNLOCKMAXWELL.BODY2 ~= nil then
-        local character_name = STRINGS.CHARACTER_NAMES ~= nil and STRINGS.CHARACTER_NAMES[character] or STRINGS.UI.UNLOCKMAXWELL.THEM or character
-        local gender = GetGenderStrings ~= nil and STRINGS.UI.GENDERSTRINGS ~= nil and STRINGS.UI.GENDERSTRINGS[GetGenderStrings(character)] or nil
-        local possessive = gender ~= nil and gender.TWO or STRINGS.UI.UNLOCKMAXWELL.THEIR or "their"
-        body = STRINGS.UI.UNLOCKMAXWELL.BODY1..character_name..string.format(STRINGS.UI.UNLOCKMAXWELL.BODY2, possessive)
-    else
-        body = "Free Maxwell from the throne?"
-    end
+    local title = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.TITLE
+    local character_name = STRINGS.CHARACTER_NAMES[character] or STRINGS.UI.UNLOCKMAXWELL.THEM or character
+    local gender = STRINGS.UI.GENDERSTRINGS[GetGenderStrings(character)] or nil
+    local possessive = gender ~= nil and gender.TWO or STRINGS.UI.UNLOCKMAXWELL.THEIR or "their"
+    local body = STRINGS.UI.UNLOCKMAXWELL.BODY1..character_name..string.format(STRINGS.UI.UNLOCKMAXWELL.BODY2, possessive)
 
     local function respond(accepted)
         TheFrontEnd:PopScreen()
