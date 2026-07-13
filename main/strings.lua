@@ -9,6 +9,8 @@ STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER = "Chapter %d of %d"
 
 STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE = "Everyone is dead. Everyone will return to the main world in: %d"
 STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE = "Return Now"
+STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE = "Return to the Original World"
+STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY = "Are you sure you want to return to the original world?"
 
 AddSimPostInit(function()
     if TheWorld.is_adventure then

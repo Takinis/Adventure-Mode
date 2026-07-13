@@ -5,6 +5,19 @@ GLOBAL.setfenv(1, GLOBAL)
 
 local Levels = require("map/levels")
 
+AddModRPCHandler("AdventureMode", "ReturnAfterDeath", function(player)
+    if player == nil or not player:IsValid() or player.userid == nil or player.userid == "" then
+        return
+    end
+
+    local client = TheNet:GetClientTableForUser(player.userid)
+    if client == nil or not client.admin and not ShardGameIndex.adventure:IsActive() then
+        return
+    end
+
+    ShardGameIndex.adventure:ReturnFromShard("death")
+end)
+
 AddClientModRPCHandler("AdventureMode", "ShowTitle", function(preset, chapter, total, play_maxwell_intro)
     if type(chapter) ~= "number" or type(total) ~= "number" then
         return

@@ -25,6 +25,7 @@ local stategraphs_posts = {
 }
 
 modimport("postinit/widgets/redux/templates")
+modimport("postinit/widgets/playerdeathnotification")
 
 modimport("postinit/shardworldindex")
 modimport("postinit/shardadventureindex")

@@ -27,3 +27,13 @@ msgstr "每个人都死了。所有人即将返回：%d"
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE"
 msgid "Return Now"
 msgstr "现在返回"
+
+#. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE
+msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE"
+msgid "Return to the Original World"
+msgstr "开始返回世界"
+
+#. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY
+msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY"
+msgid "Are you sure you want to return to the original world?"
+msgstr "确定要返回到原来的世界吗？"
