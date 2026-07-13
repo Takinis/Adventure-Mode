@@ -97,7 +97,7 @@ local function CancelSpawn(player)
 end
 
 local function ToggleUpdate(force)
-    if TheWorld:IsAdventureLevel("RAINY") and -- 只在冒险模式：冷淡的接待关卡生效
+    if false and TheWorld:IsAdventureLevel("RAINY") and -- 只在冒险模式：冷淡的接待关卡生效
         not _worldstate.iswinter and
         _worldstate.israining and
         _worldstate.precipitationrate > RAINY_FROG_RAIN_PRECIPITATION and
