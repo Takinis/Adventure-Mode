@@ -37,3 +37,8 @@ msgstr "开始返回世界"
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY"
 msgid "Are you sure you want to return to the original world?"
 msgstr "确定要返回到原来的世界吗？"
+
+#. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE
+msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE"
+msgid "The current world will be destroyed, begin the next Adventure Mode chapter? Every living player must confirm activation."
+msgstr "当前世界即将毁灭，是否开启下一章节？所有存活玩家必须确认激活。"

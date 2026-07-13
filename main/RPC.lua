@@ -399,7 +399,7 @@ AddClientModRPCHandler("AdventureMode", "Adventure???", function(guid, popup_dat
     }
 
     -- local Screen = BigPopupDialogScreen(STRINGS.UI.STARTADVENTURE.TITLE, popup_data.body, buttons)
-    local Screen = PopupDialogScreen(popup_data.title or STRINGS.UI.STARTADVENTURE.TITLE, popup_data.body, buttons, nil, "big", "dark_wide")
+    local Screen = PopupDialogScreen(popup_data.title or STRINGS.UI.STARTADVENTURE.TITLE, popup_data.body, buttons, nil, popup_data.longness or nil, popup_data.style or nil)
 
     TheFrontEnd:PushScreen(Screen)
 end)

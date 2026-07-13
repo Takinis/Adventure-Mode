@@ -35,6 +35,7 @@ local PART_COUNT = 4
 local TELEPORTATO_SLOT_ORDER = { 1, 2, 3, 4 }
 
 local CheckNextLevelSure
+local EnableTeleportatoActivation
 
 local function CountParts(inst)
 	local parts_count = 0
@@ -117,6 +118,10 @@ local function TrackPlayerContainer(inst, userid, container)
 		if inst._playercontainers ~= nil and inst._playercontainers[userid] == container then
 			inst._playercontainers[userid] = nil
 		end
+		EnableTeleportatoActivation(inst)
+	end, container)
+	inst:ListenForEvent("onclose", function()
+		EnableTeleportatoActivation(inst)
 	end, container)
 end
 
@@ -388,7 +393,7 @@ local function AreAllPlayersNearby(inst)
 end
 
 local function TransitionToNextLevel(inst, doer)
-	if not TheWorld.is_adventure then
+	if not TheWorld:IsAdventureActive() then
 		return false
 	end
 
@@ -430,6 +435,9 @@ local function TransitionToNextLevel(inst, doer)
 	local player_sessions = BuildAdventurePlayerSessions(inst)
 
 	inst._activating = true
+	if inst.components.activatable ~= nil then
+		inst.components.activatable.inactive = false
+	end
 
 	for _, player in ipairs(AllPlayers) do
 		if player.components.health ~= nil and not player.components.health:IsDead() then
@@ -464,7 +472,7 @@ local function SetPlayerActivation(inst, doer, active)
 		return false
 	end
 
-	if not IsLivingPlayer(doer) or not TheWorld.is_adventure or
+	if not IsLivingPlayer(doer) or not TheWorld:IsAdventureActive() or
 		CountParts(inst) < PART_COUNT or inst._activating then
 		return false
 	end
@@ -479,7 +487,7 @@ local function SetPlayerActivation(inst, doer, active)
 end
 
 local function GetBodyText()
-	return "Begin the next Adventure Mode chapter? Every living player must confirm activation and stand near the Teleportato."
+	return STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE
 end
 
 CheckNextLevelSure = function(inst, doer)
@@ -500,10 +508,19 @@ CheckNextLevelSure = function(inst, doer)
 	)
 end
 
-local function EnableTeleportatoActivation(inst)
-	if inst.components.activatable ~= nil and not inst._activating then
-		inst.components.activatable.inactive = true
+EnableTeleportatoActivation = function(inst)
+	if inst.components.activatable == nil or inst._activating then
+		return
 	end
+
+	for _, container in pairs(inst._playercontainers or {}) do
+		if container ~= nil and container:IsValid() and container.components.container ~= nil and
+			container.components.container:IsOpen() then
+			return
+		end
+	end
+
+	inst.components.activatable.inactive = true
 end
 
 local function OpenPlayerContainer(inst, doer)
@@ -515,6 +532,9 @@ local function OpenPlayerContainer(inst, doer)
 	local container = GetPlayerContainer(inst, doer.userid, true)
 	if container ~= nil and container.components.container ~= nil then
 		container.components.container:Open(doer)
+		if container.components.container:IsOpenedBy(doer) then
+			return
+		end
 	end
 	EnableTeleportatoActivation(inst)
 end

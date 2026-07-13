@@ -37,7 +37,9 @@ end
 local function OnActivate(inst, doer)
     SendModRPCToClient(GetClientModRPC("AdventureMode", "Adventure???"), doer.userid, inst.GUID,
         ZipAndEncodeString({
-			body = GetBodyText()
+			body = GetBodyText(),
+            longness = "big",
+            style = "dark_wide",
 		}))
     return true
 end
