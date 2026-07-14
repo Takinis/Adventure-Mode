@@ -19,6 +19,11 @@ local function light(inst)
 end
 
 local function extinguish(inst)
+    local throne = TheSim:FindFirstEntityWithTag("maxwellthrone")
+    if throne ~= nil and throne:IsValid() and throne._endgame_started then
+        return
+    end
+
     if inst.components.burnable:IsBurning() then
         inst.components.burnable:Extinguish()
     end

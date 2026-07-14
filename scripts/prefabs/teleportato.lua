@@ -482,7 +482,12 @@ local function SetPlayerActivation(inst, doer, active)
 		return false
 	end
 
+	local was_confirmed = inst._confirmed_players[doer.userid] == true
 	inst._confirmed_players[doer.userid] = true
+	if not was_confirmed then
+		TheNet:Announce(string.format(STRINGS.UI.HUD.TELEPORTATO_PLAYER_CONFIRMED, doer:GetDisplayName()))
+	end
+
 	return TransitionToNextLevel(inst, doer)
 end
 

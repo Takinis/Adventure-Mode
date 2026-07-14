@@ -1,3 +1,5 @@
+local Lock = require("components/lock")
+
 local assets = {
 	Asset("ANIM", "anim/diviningrod.zip"),
     Asset("SOUND", "sound/common.fsb"),
@@ -13,30 +15,50 @@ local function FindThrone()
     return throne ~= nil and throne:IsValid() and throne or nil
 end
 
-local function OnUnlock(inst, key, doer)
-    local throne = FindThrone()
-    if throne == nil then
-        if inst.components.lock ~= nil then
-            inst.components.lock:Lock(doer)
+local function ClearPendingUnlock(inst)
+    inst._unlock_pending = nil
+    inst._pending_key = nil
+    inst._unlocker_userid = nil
+    inst.throne = nil
+end
+
+local function SendUnlockPrompt(inst, throne, doer)
+    local character = throne.isMaxwell and "waxwell" or throne.puppet._puppet_character:value()
+    SendModRPCToClient(GetClientModRPC("AdventureMode", "UnlockMaxwell"), doer.userid, inst.GUID, character)
+end
+
+local function RequestUnlock(lock, key, doer)
+    local inst = lock.inst
+    if not lock:IsLocked() or
+        doer == nil or doer.userid == nil or doer.userid == "" or
+        key == nil or not key:IsValid() or key.components.key == nil or
+        key.components.inventoryitem == nil or
+        key.components.inventoryitem:GetGrandOwner() ~= doer or
+        not lock:CompatableKey(key.components.key.keytype) then
+        return
+    end
+
+    if inst._unlock_pending then
+        local throne = inst.throne ~= nil and inst.throne:IsValid() and inst.throne or nil
+        if inst._pending_key == key and inst._unlocker_userid == doer.userid and
+            throne ~= nil and not throne._endgame_started then
+            SendUnlockPrompt(inst, throne, doer)
         end
         return
     end
 
-    inst.throne = throne
-    throne.lock = inst
-    inst._pending_key = key
-    inst._unlocker_userid = doer ~= nil and doer.userid or nil
-
-    if doer ~= nil and doer.userid ~= nil then
-        inst._unlock_pending = true
-        inst.AnimState:PlayAnimation("idle_empty")
-        local character = throne.isMaxwell and "waxwell" or throne.puppet._puppet_character:value()
-        SendModRPCToClient(GetClientModRPC("AdventureMode", "UnlockMaxwell"), doer.userid, inst.GUID, character)
-    else
-        inst.AnimState:PlayAnimation("idle_full")
-        inst._pending_key = nil
-        throne:StartEndGameSequence(doer)
+    local throne = FindThrone()
+    if throne == nil or throne._endgame_started then
+        return
     end
+
+    inst.throne = throne
+    inst._pending_key = key
+    inst._unlocker_userid = doer.userid
+    inst._unlock_pending = true
+    inst.AnimState:PlayAnimation("idle_empty")
+
+    SendUnlockPrompt(inst, throne, doer)
 end
 
 local function OnLock(inst, doer)
@@ -63,8 +85,10 @@ local function ReturnPendingKey(inst, doer)
 
         if doer ~= nil and doer.components.inventory ~= nil then
             doer.components.inventory:GiveItem(key, nil, inst:GetPosition())
-        elseif key:IsInLimbo() then
-            key:ReturnToScene()
+        else
+            if key:IsInLimbo() then
+                key:ReturnToScene()
+            end
             key.Transform:SetPosition(inst.Transform:GetWorldPosition())
         end
     end
@@ -75,21 +99,29 @@ local function ConfirmUnlock(inst, doer)
         return false
     end
 
+    local lock = inst.components.lock
+    local key = inst._pending_key
     local throne = inst.throne ~= nil and inst.throne:IsValid() and inst.throne or FindThrone()
-    if throne == nil then
-        inst._unlock_pending = nil
-        inst._unlocker_userid = nil
-        inst.throne = nil
-        ReturnPendingKey(inst, doer)
-        inst._pending_key = nil
+    if lock == nil or not lock:IsLocked() or throne == nil or throne._endgame_started or
+        key == nil or not key:IsValid() or key.components.key == nil or
+        key.components.inventoryitem == nil or
+        key.components.inventoryitem:GetGrandOwner() ~= doer or
+        not lock:CompatableKey(key.components.key.keytype) then
+        ClearPendingUnlock(inst)
+        inst.AnimState:PlayAnimation("idle_empty")
         return false
     end
 
+    ClearPendingUnlock(inst)
+    Lock.Unlock(lock, key, doer)
+    if lock:IsLocked() then
+        return false
+    end
+
+    inst._unlock_confirmed = true
+    throne.lock = inst
     inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_add_divining")
     inst.AnimState:PlayAnimation("idle_full")
-    inst._unlock_pending = nil
-    inst._pending_key = nil
-    inst._unlocker_userid = nil
     return throne:StartEndGameSequence(doer)
 end
 
@@ -98,14 +130,40 @@ local function CancelUnlock(inst, doer)
         return false
     end
 
-    inst._unlock_pending = nil
-    inst._unlocker_userid = nil
-    inst.throne = nil
-    ReturnPendingKey(inst, doer)
-    inst._pending_key = nil
+    ClearPendingUnlock(inst)
     inst.AnimState:PlayAnimation("idle_empty")
-    inst:PushEvent("notfree")
     return true
+end
+
+local function OnSave(inst, data)
+    data.maxwell_unlock_confirmed = inst._unlock_confirmed == true or nil
+end
+
+local function OnLoad(inst, data)
+    inst._unlock_confirmed = data ~= nil and data.maxwell_unlock_confirmed == true or nil
+    ClearPendingUnlock(inst)
+end
+
+local function OnLoadPostPass(inst)
+    local lock = inst.components.lock
+    if lock == nil or lock:IsLocked() then
+        inst.AnimState:PlayAnimation("idle_empty")
+        return
+    end
+
+    if inst._unlock_confirmed then
+        local throne = FindThrone()
+        if throne ~= nil then
+            throne.lock = inst
+            inst.AnimState:PlayAnimation("idle_full")
+            throne:StartEndGameSequence(nil)
+            return
+        end
+    end
+
+    inst._unlock_confirmed = nil
+    ReturnPendingKey(inst, nil)
+    inst.AnimState:PlayAnimation("idle_empty")
 end
 
 local function fn()
@@ -133,11 +191,14 @@ local function fn()
 
     inst:AddComponent("lock")
     inst.components.lock.locktype = "maxwell"
-    inst.components.lock:SetOnUnlockedFn(OnUnlock)
     inst.components.lock:SetOnLockedFn(OnLock)
+    inst.components.lock.Unlock = RequestUnlock
 
     inst.ConfirmUnlock = ConfirmUnlock
     inst.CancelUnlock = CancelUnlock
+    inst.OnSave = OnSave
+    inst.OnLoad = OnLoad
+    inst.OnLoadPostPass = OnLoadPostPass
 
     return inst
 end

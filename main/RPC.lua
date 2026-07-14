@@ -292,10 +292,10 @@ AddModRPCHandler("AdventureMode", "RequestTeleportatoConfirm", function(player, 
     inst:CheckNextLevelSure(player)
 end)
 
-AddModRPCHandler("AdventureMode", "UnlockMaxwell", function(player, guid, accepted)
+AddModRPCHandler("AdventureMode", "UnlockMaxwell", function(player, guid, response)
     if player == nil or not player:IsValid() or
         type(guid) ~= "number" or
-        type(accepted) ~= "boolean" then
+        (response ~= "confirm" and response ~= "cancel") then
         return
     end
 
@@ -310,10 +310,7 @@ AddModRPCHandler("AdventureMode", "UnlockMaxwell", function(player, guid, accept
         return
     end
 
-    if accepted then
-        if inst.components.lock:IsLocked() then
-            return
-        end
+    if response == "confirm" then
         inst:ConfirmUnlock(player)
     else
         inst:CancelUnlock(player)
@@ -353,14 +350,14 @@ AddClientModRPCHandler("AdventureMode", "UnlockMaxwell", function(guid, characte
     local possessive = gender ~= nil and gender.TWO or STRINGS.UI.UNLOCKMAXWELL.THEIR or "their"
     local body = STRINGS.UI.UNLOCKMAXWELL.BODY1..character_name..string.format(STRINGS.UI.UNLOCKMAXWELL.BODY2, possessive)
 
-    local function respond(accepted)
+    local function respond(response)
+        SendModRPCToServer(GetModRPC("AdventureMode", "UnlockMaxwell"), guid, response)
         TheFrontEnd:PopScreen()
-        SendModRPCToServer(GetModRPC("AdventureMode", "UnlockMaxwell"), guid, accepted)
     end
 
     local buttons = {
-        { text = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.YES or STRINGS.UI.YES, cb = function() respond(true) end },
-        { text = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.NO or STRINGS.UI.NO, cb = function() respond(false) end },
+        { text = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.YES or STRINGS.UI.YES, cb = function() respond("confirm") end },
+        { text = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.NO or STRINGS.UI.NO, cb = function() respond("cancel") end },
     }
 
     TheFrontEnd:PushScreen(PopupDialogScreen(title, body, buttons))
