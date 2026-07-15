@@ -4,7 +4,7 @@ end
 
 name = en_zh("Adventure Mode", "冒险模式")
 description = en_zh("Bringing you the adventure mode experience that recreates Don't Starve.", "本模组带来尽可能还原《饥荒》冒险模式的体验。")
-author = "Sydney & Ardent"
+author = "Sydney & Ardent & Kiseru"
 forumthread = ""
 
 version = "1.0"
