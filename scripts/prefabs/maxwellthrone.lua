@@ -69,24 +69,18 @@ local function SendCameraControllerRPCToPlayers(inst, rpc_name)
 end
 
 local function GetPlayerCharacter(doer)
-    if doer ~= nil and doer.prefab ~= nil then
-        return doer.prefab
-    end
-
-    local player = AllPlayers ~= nil and AllPlayers[1] or nil
-    return player ~= nil and player.prefab or "wilson"
+    return doer ~= nil and doer.prefab or nil
 end
 
 local function GetPlayerBuild(doer, character)
-    local player = doer or (AllPlayers ~= nil and AllPlayers[1] or nil)
-    if player ~= nil and player.AnimState ~= nil then
-        local build = player.AnimState:GetBuild()
+    if doer ~= nil and doer.AnimState ~= nil then
+        local build = doer.AnimState:GetBuild()
         if build ~= nil and build ~= "" then
             return build
         end
     end
 
-    return character or "wilson"
+    return character
 end
 
 local function GetPuppetRecord(character, build, userid)
@@ -269,6 +263,42 @@ local function ReturnToMainWorld()
     end
 end
 
+local function TryReturnToMainWorld(inst)
+    for _, confirmed in pairs(inst._endgame_dialog_players or {}) do
+        if not confirmed then
+            return false
+        end
+    end
+
+    inst._awaiting_endgame_dialog = nil
+    inst._endgame_dialog_players = nil
+    ReturnToMainWorld()
+    return true
+end
+
+local function ConfirmEndGameDialog(inst, player)
+    local userid = player ~= nil and player.userid or nil
+    if not inst._awaiting_endgame_dialog or userid == nil or
+        inst._endgame_dialog_players[userid] ~= false then
+        return false
+    end
+
+    inst._endgame_dialog_players[userid] = true
+    TryReturnToMainWorld(inst)
+    return true
+end
+
+local function OnPlayerLeft(inst, player)
+    local userid = player ~= nil and player.userid or nil
+    if not inst._awaiting_endgame_dialog or userid == nil or
+        inst._endgame_dialog_players[userid] == nil then
+        return
+    end
+
+    inst._endgame_dialog_players[userid] = nil
+    TryReturnToMainWorld(inst)
+end
+
 local function ZoomAndFade(inst)
     SendCutsceneRPCToPlayers(inst, "ZoomMaxwellThroneCutscene", inst.GUID, inst.isMaxwell == true)
 
@@ -287,9 +317,15 @@ local function ZoomAndFade(inst)
 
     Sleep(4)
 
-    SendCutsceneRPCToPlayers(inst, "FadeInMaxwellThroneCutscene", inst.GUID, 0)
-
-    ReturnToMainWorld()
+    inst._endgame_dialog_players = {}
+    ForEachCutscenePlayer(inst, function(player)
+        if player.userid ~= nil and player.userid ~= "" then
+            inst._endgame_dialog_players[player.userid] = false
+        end
+    end)
+    inst._awaiting_endgame_dialog = true
+    SendCutsceneRPCToPlayers(inst, "ShowMaxwellThroneEndGameDialog", inst.GUID, inst._replacement_character)
+    TryReturnToMainWorld(inst)
 end
 
 local function DecomposePuppet(inst)
@@ -339,7 +375,7 @@ local function SpawnNewPuppet(inst)
         player:Hide()
     end)
 
-    local puppet_to_spawn = inst._replacement_character or GetPlayerCharacter()
+    local puppet_to_spawn = inst._replacement_character
     local puppet_build = inst._replacement_build or puppet_to_spawn
     local puppet_record = GetPuppetRecord(puppet_to_spawn, puppet_build, inst._replacement_userid)
     local new_is_maxwell = puppet_record.character == "waxwell"
@@ -447,15 +483,22 @@ local function PlayerDie(inst)
     end
 end
 
-local function SetUpCutscene(inst, doer)
+local function SetUpCutscene(inst, doer, replacement)
     if inst.puppet ~= nil and inst.puppet:IsValid() then
         StopPuppetTalking(inst.puppet, true)
         inst.puppet.AnimState:PlayAnimation(inst.isMaxwell and "idle_loop" or "throne_loop")
     end
 
-    inst._replacement_character = GetPlayerCharacter(doer)
-    inst._replacement_build = GetPlayerBuild(doer, inst._replacement_character)
-    inst._replacement_userid = doer ~= nil and doer.userid or nil
+    replacement = replacement or {}
+    local character = replacement.character or GetPlayerCharacter(doer)
+    local puppet_record = GetPuppetRecord(
+        character,
+        replacement.build or GetPlayerBuild(doer, character),
+        replacement.userid or (doer ~= nil and doer.userid or nil)
+    )
+    inst._replacement_character = puppet_record.character
+    inst._replacement_build = puppet_record.build
+    inst._replacement_userid = puppet_record.userid
     inst._maxwellthrone_cutscene_players = BuildCutscenePlayers(inst, doer)
 
     local pt = inst:GetPosition()
@@ -495,7 +538,7 @@ local function SetUpCutscene(inst, doer)
     end
 end
 
-local function StartEndGameSequence(inst, doer)
+local function StartEndGameSequence(inst, doer, replacement)
     if inst._endgame_started then
         return false
     end
@@ -503,7 +546,7 @@ local function StartEndGameSequence(inst, doer)
     inst._endgame_started = true
     inst._endgame_cutscene_active:set(true)
     inst.task = inst:StartThread(function()
-        SetUpCutscene(inst, doer)
+        SetUpCutscene(inst, doer, replacement)
     end)
 
     return true
@@ -704,6 +747,8 @@ local function fn()
 
     inst.isMaxwell = true
     inst.StartEndGameSequence = StartEndGameSequence
+    inst.ConfirmEndGameDialog = ConfirmEndGameDialog
+    inst:ListenForEvent("ms_playerleft", OnPlayerLeft, TheWorld)
 
     inst:DoTaskInTime(0, function()
         if inst:IsValid() then

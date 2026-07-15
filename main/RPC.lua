@@ -4,19 +4,7 @@ local AddShardModRPCHandler = AddShardModRPCHandler
 GLOBAL.setfenv(1, GLOBAL)
 
 local Levels = require("map/levels")
-
-AddModRPCHandler("AdventureMode", "ReturnAfterDeath", function(player)
-    if player == nil or not player:IsValid() or player.userid == nil or player.userid == "" then
-        return
-    end
-
-    local client = TheNet:GetClientTableForUser(player.userid)
-    if client == nil or not client.admin and not ShardGameIndex.adventure:IsActive() then
-        return
-    end
-
-    ShardGameIndex.adventure:ReturnFromShard("death")
-end)
+local EndGameDialog = require("screens/endgamedialog")
 
 AddClientModRPCHandler("AdventureMode", "ShowTitle", function(preset, chapter, total, play_maxwell_intro)
     if type(chapter) ~= "number" or type(total) ~= "number" then
@@ -175,6 +163,26 @@ AddClientModRPCHandler("AdventureMode", "FadeInMaxwellThroneCutscene", function(
     end
 end)
 
+AddClientModRPCHandler("AdventureMode", "ShowMaxwellThroneEndGameDialog", function(guid, character)
+    if not IsMaxwellThroneCutscene(guid) or type(character) ~= "string" or character == "" then
+        return
+    end
+
+    maxwell_throne_cutscene_guid = nil
+
+    if TheFrontEnd ~= nil then
+        TheFrontEnd:DoFadeIn(0)
+        TheFrontEnd:PushScreen(EndGameDialog({
+            {
+                text = STRINGS.UI.ENDGAME.YES,
+                cb = function()
+                    SendModRPCToServer(GetModRPC("AdventureMode", "ConfirmMaxwellThroneEndGameDialog"), guid)
+                end,
+            },
+        }, character))
+    end
+end)
+
 AddShardModRPCHandler("AdventureMode", "ForcePlayersToMaster", function()
     ShardWorldIndex:ForceLocalPlayersToMaster()
 end)
@@ -252,6 +260,20 @@ AddShardModRPCHandler("AdventureMode", "ReturnFromAdventure", function(_, data)
     end
 end)
 
+AddModRPCHandler("AdventureMode", "ReturnAfterDeath", function(player)
+    if player == nil or not player:IsValid() or player.userid == nil or player.userid == "" then
+        return
+    end
+
+    local client = TheNet:GetClientTableForUser(player.userid)
+    if client == nil or not client.admin or ShardGameIndex == nil or ShardGameIndex.adventure == nil or
+        not ShardGameIndex.adventure:IsActive() then
+        return
+    end
+
+    ShardGameIndex.adventure:ReturnFromShard("death")
+end)
+
 AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
     data = data ~= nil and DecodeAndUnzipString(data) or nil
     if player == nil or not player:IsValid() or
@@ -317,6 +339,17 @@ AddModRPCHandler("AdventureMode", "UnlockMaxwell", function(player, guid, respon
     end
 end)
 
+AddModRPCHandler("AdventureMode", "ConfirmMaxwellThroneEndGameDialog", function(player, guid)
+    if player == nil or not player:IsValid() or type(guid) ~= "number" then
+        return
+    end
+
+    local inst = Ents[guid]
+    if inst ~= nil and inst:IsValid() and inst:HasTag("maxwellthrone") then
+        inst:ConfirmEndGameDialog(player)
+    end
+end)
+
 AddModRPCHandler("AdventureMode", "SkipMaxwellIntro", function(player, guid)
     if type(guid) ~= "number" or player == nil or not player:IsValid() then
         return
@@ -344,7 +377,7 @@ AddClientModRPCHandler("AdventureMode", "UnlockMaxwell", function(guid, characte
         return
     end
 
-    local title = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.TITLE
+    local title = STRINGS.UI.UNLOCKMAXWELL.TITLE or "Unlock Maxwell?"
     local character_name = STRINGS.CHARACTER_NAMES[character] or STRINGS.UI.UNLOCKMAXWELL.THEM or character
     local gender = STRINGS.UI.GENDERSTRINGS[GetGenderStrings(character)] or nil
     local possessive = gender ~= nil and gender.TWO or STRINGS.UI.UNLOCKMAXWELL.THEIR or "their"
@@ -356,8 +389,8 @@ AddClientModRPCHandler("AdventureMode", "UnlockMaxwell", function(guid, characte
     end
 
     local buttons = {
-        { text = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.YES or STRINGS.UI.YES, cb = function() respond("confirm") end },
-        { text = STRINGS.UI.UNLOCKMAXWELL ~= nil and STRINGS.UI.UNLOCKMAXWELL.NO or STRINGS.UI.NO, cb = function() respond("cancel") end },
+        { text = STRINGS.UI.UNLOCKMAXWELL.YES or STRINGS.UI.YES, cb = function() respond("confirm") end },
+        { text = STRINGS.UI.UNLOCKMAXWELL.NO or STRINGS.UI.NO, cb = function() respond("cancel") end },
     }
 
     TheFrontEnd:PushScreen(PopupDialogScreen(title, body, buttons))

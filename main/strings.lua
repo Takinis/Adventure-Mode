@@ -13,6 +13,17 @@ STRINGS.UI.HUD.TELEPORTATO_PLAYER_CONFIRMED = "Player %s has confirmed."
 STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE = "Return to the Original World"
 STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY = "Are you sure you want to return to the original world?"
 STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE = "The current world will be destroyed, begin the next Adventure Mode chapter? Every living player must confirm activation."
+STRINGS.UI.ENDGAME = {
+    TITLE = "The End.",
+    BODY1 = "And so the cycle continues. Will ",
+    BODY2 = " ever escape?\n Perhaps %s too will tire of this wretched place, and use %s new powers to tempt the unsuspecting.\n\nThe mysterious beings that control this place still lurk in the shadows, and new challenges will soon be revealed.\n\n\nUntil then,\n- The Don't Starve Team -",
+    YES = "For Science!",
+}
+STRINGS.UI.GENDERSTRINGS = {
+    MALE = { ONE = "he", TWO = "his" },
+    FEMALE = { ONE = "she", TWO = "her" },
+    ROBOT = { ONE = "they", TWO = "their" },
+}
 
 AddSimPostInit(function()
     if TheWorld.is_adventure then

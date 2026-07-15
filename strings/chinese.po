@@ -48,3 +48,54 @@ msgstr "确定要返回到原来的世界吗？"
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE"
 msgid "The current world will be destroyed, begin the next Adventure Mode chapter? Every living player must confirm activation."
 msgstr "当前世界即将毁灭，是否开启下一章节？所有存活玩家必须确认激活。"
+
+#. STRINGS.UI.ENDGAME.BODY1
+msgctxt "STRINGS.UI.ENDGAME.BODY1"
+msgid "And so the cycle continues. Will "
+msgstr "于是轮回又将开始。"
+
+#. STRINGS.UI.ENDGAME.BODY2
+#, lua-format
+msgctxt "STRINGS.UI.ENDGAME.BODY2"
+msgid " ever escape?\n Perhaps %s too will tire of this wretched place, and use %s new powers to tempt the unsuspecting.\n\nThe mysterious beings that control this place still lurk in the shadows, and new challenges will soon be revealed.\n\n\nUntil then,\n- The Don't Starve Team -"
+msgstr "能够逃脱吗？\n或许%s也会对这个不幸的地方感到厌倦，并运用%s新力量来诱惑不知情的人上钩。\n\n掌控此地的神秘生物仍潜伏在阴影中，新的挑战即将揭晓。\n\n\n直到那时，\n-《饥荒》团队 -"
+
+#. STRINGS.UI.ENDGAME.TITLE
+msgctxt "STRINGS.UI.ENDGAME.TITLE"
+msgid "The End."
+msgstr "剧终。"
+
+#. STRINGS.UI.ENDGAME.YES
+msgctxt "STRINGS.UI.ENDGAME.YES"
+msgid "For Science!"
+msgstr "为了科学！"
+
+#. STRINGS.UI.GENDERSTRINGS.FEMALE.ONE
+msgctxt "STRINGS.UI.GENDERSTRINGS.FEMALE.ONE"
+msgid "she"
+msgstr "她"
+
+#. STRINGS.UI.GENDERSTRINGS.FEMALE.TWO
+msgctxt "STRINGS.UI.GENDERSTRINGS.FEMALE.TWO"
+msgid "her"
+msgstr "她的"
+
+#. STRINGS.UI.GENDERSTRINGS.MALE.ONE
+msgctxt "STRINGS.UI.GENDERSTRINGS.MALE.ONE"
+msgid "he"
+msgstr "他"
+
+#. STRINGS.UI.GENDERSTRINGS.MALE.TWO
+msgctxt "STRINGS.UI.GENDERSTRINGS.MALE.TWO"
+msgid "his"
+msgstr "他的"
+
+#. STRINGS.UI.GENDERSTRINGS.ROBOT.ONE
+msgctxt "STRINGS.UI.GENDERSTRINGS.ROBOT.ONE"
+msgid "they"
+msgstr "它"
+
+#. STRINGS.UI.GENDERSTRINGS.ROBOT.TWO
+msgctxt "STRINGS.UI.GENDERSTRINGS.ROBOT.TWO"
+msgid "their"
+msgstr "他们的"
