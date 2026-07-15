@@ -22,7 +22,6 @@ local function fn()
     inst.entity:AddTransform()
     inst.entity:AddAnimState()
     inst.entity:AddSoundEmitter()
-    inst.entity:AddLight()
     inst.entity:AddNetwork()
 
     inst.AnimState:SetBank("campfire_fire")
@@ -32,7 +31,7 @@ local function fn()
     inst.AnimState:SetFinalOffset(-1)
     --inst.AnimState:SetMultColour(27/255,234/255,245/255, .6)
 
-    inst.AnimState:SetMultColour(255/255,255/25,255/255, .6)
+    -- inst.AnimState:SetMultColour(255/255,255/25,255/255, .6)
     --inst.AnimState:SetMultColour(27,234,245, .6)
 
     inst:AddTag("FX")
