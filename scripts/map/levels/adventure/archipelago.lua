@@ -3,7 +3,7 @@ GLOBAL.setfenv(1, GLOBAL)
 -- ============================================================
 -- ISLANDHOP — Archipelago
 -- ============================================================
-	AddAdventureLevel({
+AddAdventureLevel({
 	id = "ISLANDHOP",
 	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[4],
 	location = "forest",

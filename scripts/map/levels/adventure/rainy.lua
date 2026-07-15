@@ -1,6 +1,6 @@
 GLOBAL.setfenv(1, GLOBAL)
 
-	AddAdventureLevel({
+AddAdventureLevel({
 	id = "RAINY",
 	name = STRINGS.UI.SANDBOXMENU.ADVENTURELEVELS[1],
 	location = "forest",
