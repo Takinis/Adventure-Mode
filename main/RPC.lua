@@ -100,6 +100,7 @@ AddClientModRPCHandler("AdventureMode", "StartMaxwellThroneCutscene", function(g
     end
 
     if TheCamera ~= nil then
+        TheCamera:SetDefault()
         TheCamera:CutsceneMode(true)
         TheCamera:SetCustomLocation(Vector3(x, y, z))
         TheCamera:SetGains(0.5, 0.1, 2)
