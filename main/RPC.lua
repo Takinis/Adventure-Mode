@@ -203,6 +203,76 @@ local function GetShardGameWorldIndex()
     return ShardGameIndex.worldindex
 end
 
+local function FinishSecondaryWorldIndexRequest(worldindex, shardid, opts, operation, success, transition)
+    if opts.request_id == nil then
+        print("[Shard World Index] Missing request id for "..tostring(operation)..".")
+        return
+    end
+
+    local function reply()
+        worldindex:SendShardRPC("AdventureMode", "SecondaryWorldIndexReply", shardid, {
+            request_id = opts.request_id,
+            operation = operation,
+            success = success == true,
+        })
+        if success then
+            worldindex:RestartCurrentSlotAfterShardRPC({ world_index_transition = transition })
+        end
+    end
+
+    if TheWorld ~= nil then
+        TheWorld:DoStaticTaskInTime(0, reply)
+    else
+        reply()
+    end
+end
+
+AddShardModRPCHandler("AdventureMode", "BeginSecondaryWorldIndex", function(shardid, data)
+    local worldindex = GetShardGameWorldIndex()
+    if worldindex == nil then
+        return
+    end
+
+    local opts = DecodeShardPayload(data)
+    worldindex:BeginSecondaryWorldIndex(opts, function(success)
+        FinishSecondaryWorldIndexRequest(worldindex, shardid, opts, "BeginSecondaryWorldIndex", success,
+            opts.reason or "secondary_begin")
+    end)
+end)
+
+AddShardModRPCHandler("AdventureMode", "AdvanceSecondaryWorldIndex", function(shardid, data)
+    local worldindex = GetShardGameWorldIndex()
+    if worldindex == nil then
+        return
+    end
+
+    local opts = DecodeShardPayload(data)
+    worldindex:AdvanceSecondaryWorldIndex(opts, function(success)
+        FinishSecondaryWorldIndexRequest(worldindex, shardid, opts, "AdvanceSecondaryWorldIndex", success,
+            opts.reason or "secondary_advance")
+    end)
+end)
+
+AddShardModRPCHandler("AdventureMode", "ReturnSecondaryWorldIndex", function(shardid, data)
+    local worldindex = GetShardGameWorldIndex()
+    if worldindex == nil then
+        return
+    end
+
+    local opts = DecodeShardPayload(data)
+    worldindex:ReturnToStoredWorld(opts.reason or "return", function(success)
+        FinishSecondaryWorldIndexRequest(worldindex, shardid, opts, "ReturnSecondaryWorldIndex", success,
+            opts.reason or "secondary_return")
+    end)
+end)
+
+AddShardModRPCHandler("AdventureMode", "SecondaryWorldIndexReply", function(shardid, data)
+    local worldindex = GetShardGameWorldIndex()
+    if worldindex ~= nil then
+        worldindex:HandleSecondaryWorldIndexReply(shardid, DecodeShardPayload(data))
+    end
+end)
+
 AddShardModRPCHandler("AdventureMode", "BeginSecondaryAdventure", function(_, data)
     local worldindex = GetShardGameWorldIndex()
     if ShardGameIndex == nil or ShardGameIndex.adventure == nil or worldindex == nil then

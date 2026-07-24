@@ -1,4 +1,4 @@
--- Patch vanilla ShardIndex lifecycle methods so world switching can
+-- Patch vanilla ShardIndex lifecycle methods so WorldIndex can
 -- keep sidecar state in sync. Adventure Mode is one consumer of this layer.
 
 GLOBAL.setfenv(1, GLOBAL)
@@ -94,7 +94,7 @@ end
 local _NewShardInSlot = ShardIndex.NewShardInSlot
 function ShardIndex:NewShardInSlot(slot, shard)
     _NewShardInSlot(self, slot, shard)
-    if not self.preserve_world_switch_sidecar then
+    if not self.preserve_world_index_sidecar then
         self.worldindex:ClearSidecar()
     end
 end

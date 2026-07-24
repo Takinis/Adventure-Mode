@@ -5,6 +5,11 @@ local StaticLayout = require("map/static_layout")
 local AllLayouts = require("map/layouts").Layouts
 
 AllLayouts["MaxHomeStart"] = StaticLayout.Get("map/static_layouts/maxhome_start")
+AllLayouts["hamlet_secondary_start"] = StaticLayout.Get("map/static_layouts/hamlet_secondary_start", {
+    start_mask = PLACE_MASK.IGNORE_IMPASSABLE_BARREN_RESERVED,
+    fill_mask = PLACE_MASK.IGNORE_IMPASSABLE_BARREN_RESERVED,
+    layout_position = LAYOUT_POSITION.CENTER,
+})
 
 local maxwell_home = AllLayouts["MaxwellHome"]
 local adventure_mode_dev = StaticLayout.Get("map/static_layouts/adventure_mode_dev")

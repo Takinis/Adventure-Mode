@@ -179,9 +179,15 @@ local function StopMaxwellIntroCutscene(guid)
 end
 
 local function RequestMaxwellIntroAfterTitle(data)
-    if data ~= nil and data.play_maxwell_intro and ThePlayer ~= nil then
+    if data == nil or ThePlayer == nil then
+        return
+    end
+
+    if data.play_maxwell_intro then
         TheFrontEnd:BeginMaxwellIntroCutscene()
         SendModRPCToServer(GetModRPC("AdventureMode", "RequestMaxwellIntroAfterTitle"))
+    elseif ThePlayer.sg ~= nil then
+        ThePlayer.sg:GoToState("wakeup")
     end
 end
 

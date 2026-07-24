@@ -1,5 +1,5 @@
 -- Adventure state manager for ShardIndex.
--- Generic world switching lives in ShardWorldIndex; this class owns chapter
+-- Generic WorldIndex state lives in ShardWorldIndex; this class owns chapter
 -- rules, adventure player sessions, and shard sync flow.
 
 GLOBAL.setfenv(1, GLOBAL)
@@ -10,18 +10,10 @@ ShardAdventureIndex = Class(function(self, index)
     self.index = index
 end)
 
-local ADVENTURE_WORLD_SWITCH_FILE_ID = "adventure"
+local ADVENTURE_WORLD_INDEX_FILE_ID = "adventure"
 local ADVENTURE_DARKNESS_LEVEL = "DARKNESS"
 local ADVENTURE_ENDING_LEVEL = "ENDING"
 local ADVENTURE_LEVEL_COUNT = 4
-local ADVENTURE_LEVELS =
-{
-    RAINY = true,
-    WINTER = true,
-    HUB = true,
-    ISLANDHOP = true,
-    TWOLANDS = true,
-}
 
 local function get_adventure_playlist_level_id(level)
     if type(level) == "table" then
@@ -93,9 +85,7 @@ local function order_adventure_playlist_levels(levels)
 end
 
 local function build_adventure_playlist(levels)
-    local core_levels = {}
-    local extension_levels = {}
-    local levels_by_key = {}
+    local regular_levels = {}
     local seen = {}
     local has_darkness = false
     local has_ending = false
@@ -114,8 +104,7 @@ local function build_adventure_playlist(levels)
                 min_playlist_position = type(level) == "table" and level.min_playlist_position or nil,
                 max_playlist_position = type(level) == "table" and level.max_playlist_position or nil,
             }
-            levels_by_key[key] = playlist_level
-            table.insert(ADVENTURE_LEVELS[key] and core_levels or extension_levels, playlist_level)
+            table.insert(regular_levels, playlist_level)
         end
     end
 
@@ -124,16 +113,12 @@ local function build_adventure_playlist(levels)
         return nil, "missing terminal adventure level " .. missing
     end
 
-    local regular_levels = {}
-    local ordered_core_levels = order_adventure_playlist_levels(core_levels)
-    for i = 1, math.min(ADVENTURE_LEVEL_COUNT, #ordered_core_levels) do
-        table.insert(regular_levels, levels_by_key[string.upper(ordered_core_levels[i])])
-    end
-    for _, level in ipairs(extension_levels) do
-        table.insert(regular_levels, level)
+    local ordered_regular_levels = order_adventure_playlist_levels(regular_levels)
+    local playlist = {}
+    for i = 1, math.min(ADVENTURE_LEVEL_COUNT, #ordered_regular_levels) do
+        table.insert(playlist, ordered_regular_levels[i])
     end
 
-    local playlist = order_adventure_playlist_levels(regular_levels)
     table.insert(playlist, ADVENTURE_DARKNESS_LEVEL)
     table.insert(playlist, ADVENTURE_ENDING_LEVEL)
     return playlist
@@ -147,18 +132,13 @@ local function normalize_adventure_playlist(level_sequence)
     local normalized = {}
     for i = 1, #level_sequence do
         local level = level_sequence[i]
-        if type(level) ~= "table" and get_adventure_playlist_level_id(level) == nil then
+        if get_adventure_playlist_level_id(level) == nil then
             return nil, "invalid level id at position " .. tostring(i)
         end
 
-        local key = get_adventure_playlist_level_key(level)
-        if key ~= ADVENTURE_DARKNESS_LEVEL and key ~= ADVENTURE_ENDING_LEVEL then
-            table.insert(normalized, level)
-        end
+        table.insert(normalized, level)
     end
 
-    table.insert(normalized, ADVENTURE_DARKNESS_LEVEL)
-    table.insert(normalized, ADVENTURE_ENDING_LEVEL)
     return normalized
 end
 
@@ -168,12 +148,12 @@ end
 
 local function read_sidecar(index, cb)
     cb = cb or NOOP
-    index.worldindex:ReadSidecar(cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
+    index.worldindex:ReadSidecar(cb, ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
 local function write_sidecar(index, data, cb)
     cb = cb or NOOP
-    index.worldindex:WriteSidecar(data, cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
+    index.worldindex:WriteSidecar(data, cb, ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
 local set_adventure_state
@@ -312,7 +292,7 @@ end
 
 local function restart_current_slot_after_shard_rpc(index, extra_params)
     extra_params = extra_params or {}
-    extra_params.world_switch_file_id = ADVENTURE_WORLD_SWITCH_FILE_ID
+    extra_params.world_index_file_id = ADVENTURE_WORLD_INDEX_FILE_ID
     index.worldindex:RestartCurrentSlotAfterShardRPC(extra_params)
 end
 
@@ -339,7 +319,7 @@ get_adventure_state = function(index)
         end
     end
 
-    local state = index.worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID)
+    local state = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
     if state ~= nil then
         return state
     end
@@ -378,7 +358,7 @@ end
 set_adventure_state = function(index, state)
     index.adventure_state = state
 
-    index.worldindex:SetState(state, ADVENTURE_WORLD_SWITCH_FILE_ID)
+    index.worldindex:SetState(state, ADVENTURE_WORLD_INDEX_FILE_ID)
 
     if TheWorld ~= nil and TheWorld.ismastersim and TheWorld.net ~= nil and
         TheWorld.net.components ~= nil and TheWorld.net.components.adventure ~= nil then
@@ -491,11 +471,11 @@ function ShardAdventureIndex:RememberStartingInventory(inst)
 end
 
 function ShardAdventureIndex:LoadSidecar(cb)
-    return self.index.worldindex:LoadSidecar(cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
+    return self.index.worldindex:LoadSidecar(cb, ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
 function ShardAdventureIndex:ClearSidecar(cb)
-    return self.index.worldindex:ClearSidecar(cb, ADVENTURE_WORLD_SWITCH_FILE_ID)
+    return self.index.worldindex:ClearSidecar(cb, ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
 function ShardAdventureIndex:NeedsGenerationOnLoad()
@@ -639,7 +619,7 @@ function ShardAdventureIndex:Begin(opts, cb)
     {
         active = true,
         kind = "adventure",
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         topology_key = "adventure_state",
         reason = "begin",
         sequence_id = opts.sequence_id or "default",
@@ -662,12 +642,12 @@ function ShardAdventureIndex:Begin(opts, cb)
         maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_state ~= nil and previous_state.maxwell_throne_puppet or nil),
     }
 
-    worldindex:BeginWorldSwitch({
+    worldindex:BeginWorldIndex({
         kind = "adventure",
         reason = "begin",
         sequence_id = state.sequence_id,
         target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         reuse_existing = false,
         level_sequence = level_sequence,
         chapter = initial_chapter,
@@ -678,7 +658,7 @@ function ShardAdventureIndex:Begin(opts, cb)
         state = state,
     }, function(success)
         if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
         end
         cb(success)
     end)
@@ -730,7 +710,7 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
     {
         active = true,
         kind = "adventure",
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         topology_key = "adventure_state",
         secondary = true,
         reason = "begin",
@@ -751,12 +731,12 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         maxwell_intro_played_chapters = {},
     }
 
-    worldindex:BeginWorldSwitch({
+    worldindex:BeginWorldIndex({
         kind = "adventure",
         reason = "begin",
         sequence_id = state.sequence_id,
         target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         reuse_existing = false,
         level_sequence = level_sequence,
         chapter = initial_chapter,
@@ -764,7 +744,7 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         state = state,
     }, function(success)
         if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
         end
         cb(success)
     end)
@@ -816,19 +796,19 @@ function ShardAdventureIndex:Advance(opts, cb)
         adventure_player_sessions = ShardWorldIndex:DeepCopy(next_player_sessions) or {},
         first_chapter_start_inv_pending = false,
         cleanup_session_id = state.current_session_id,
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
     }
 
     worldindex:QueueNextWorld({
         target = { type = "generated", level = next_preset, world_type = "adventure", cleanup_on_return = true },
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         reuse_existing = false,
         chapter = next_chapter,
         keep_session = true,
         pending_generation = pending_generation,
     }, function(success, chapter)
         if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
         end
         cb(success, chapter)
     end)
@@ -866,19 +846,19 @@ function ShardAdventureIndex:AdvanceSecondary(opts, cb)
         adventure_player_sessions = nil,
         first_chapter_start_inv_pending = false,
         cleanup_session_id = state.current_session_id,
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
     }
 
     worldindex:QueueNextWorld({
         target = { type = "generated", level = next_preset, world_type = "adventure", cleanup_on_return = true },
-        file_id = ADVENTURE_WORLD_SWITCH_FILE_ID,
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         reuse_existing = false,
         chapter = next_chapter,
         keep_session = true,
         pending_generation = pending_generation,
     }, function(success, chapter)
         if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
         end
         cb(success, chapter)
     end)
@@ -903,8 +883,8 @@ function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
     inject_late_joiners_into_main_world(index, state, function()
         worldindex:ReturnToStoredWorld(reason or "return", function(success)
             if success then
-                worldindex:RestoreParentWorldSwitch(state, function()
-                    set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_SWITCH_FILE_ID))
+                worldindex:RestoreParentWorldIndex(state, function()
+                    set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
                     cb(success)
                 end)
                 return

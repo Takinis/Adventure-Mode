@@ -13,6 +13,9 @@ AddLevelPreInitAny(function(level)
     if not IsSurvivalLevel(level) then
         return
     end
+    if level.overrides.task_set == "HAMLET_SECONDARY" then
+        return
+    end
 
     level.required_setpieces = level.required_setpieces or {}
     if table.contains(level.required_setpieces, "AdventurePortalLayout") then

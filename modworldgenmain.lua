@@ -27,9 +27,11 @@ end
 modimport("scripts/map/ad_layouts")
 modimport("scripts/map/ad_tasksets")
 modimport("scripts/map/levels/adventure")
+modimport("scripts/map/levels/hamlet_secondary")
 modimport("scripts/map/ad_startlocations")
 
 modimport("scripts/map/tasks/maxwell")
+modimport("scripts/map/tasks/hamlet_secondary")
 
 -- require("map/ad_layouts")
 -- require("map/ad_startlocations")

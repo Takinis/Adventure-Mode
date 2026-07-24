@@ -85,6 +85,7 @@ end
 
 function MaxwellIntroSpawner:ShouldPlayCurrentChapter()
     return GetPlayerUserid(self.inst) ~= nil and
+        self.inst.prefab ~= "waxwell" and
         GetCurrentAdventureSpeechName() ~= nil and
         not self:IsCurrentChapterPlayed()
 end
@@ -99,7 +100,7 @@ function MaxwellIntroSpawner:MarkCurrentChapterPlayed()
 end
 
 function MaxwellIntroSpawner:StartCurrentChapter()
-    if self:IsCurrentChapterPlayed() then
+    if not self:ShouldPlayCurrentChapter() then
         return false
     end
 

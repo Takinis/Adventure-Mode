@@ -116,12 +116,11 @@ function c_adventure(level)
     print("[Adventure Mode] Starting test adventure level "..tostring(level_id)..".")
     return ShardGameIndex.adventure:Start({
         level_sequence = { level_id },
-        chapter = string.upper(level_id) == "ENDING" and 2 or 1,
         sequence_id = "test_"..string.lower(level_id),
     })
 end
 
-local WORLD_SWITCH_WORLD_ALIASES =
+local WORLD_INDEX_WORLD_ALIASES =
 {
     dst = "forest",
     forest = "forest",
@@ -134,7 +133,7 @@ local WORLD_SWITCH_WORLD_ALIASES =
     porkland = "porkland",
 }
 
-local function GetConsoleWorldSwitchIndex()
+local function GetConsoleWorldIndex()
     if ShardGameIndex == nil or ShardGameIndex.worldindex == nil then
         print("[Shard World Index] ShardWorldIndex is unavailable.")
         return nil
@@ -142,7 +141,7 @@ local function GetConsoleWorldSwitchIndex()
     return ShardGameIndex.worldindex
 end
 
-local function GetConsoleWorldSwitchTarget(world_type)
+local function GetConsoleWorldIndexTarget(world_type)
     if type(world_type) == "table" then
         return world_type, world_type.file_id or world_type.world_type or world_type.location or world_type.id or world_type.session_id
     end
@@ -153,34 +152,34 @@ local function GetConsoleWorldSwitchTarget(world_type)
     end
 
     local key = string.lower(tostring(world_type))
-    local target_world_type = WORLD_SWITCH_WORLD_ALIASES[key] or key
+    local target_world_type = WORLD_INDEX_WORLD_ALIASES[key] or key
     return { type = "generated", world_type = target_world_type }, target_world_type
 end
 
-local function IsConsoleAdventureWorldSwitchActive(index)
+local function IsConsoleAdventureWorldIndexActive(index)
     local state = index:GetState()
     return state ~= nil and state.active == true and state.kind == "adventure"
 end
 
 function c_switchworld(world_type)
-    local index = GetConsoleWorldSwitchIndex()
+    local index = GetConsoleWorldIndex()
     if index == nil then
         return false
     end
 
-    if IsConsoleAdventureWorldSwitchActive(index) then
-        print("[Shard World Index] Adventure is active; c_switchworld is only for normal world switching.")
+    if IsConsoleAdventureWorldIndexActive(index) then
+        print("[Shard World Index] Adventure is active; c_switchworld is only for normal WorldIndex operations.")
         return false
     end
 
-    local target, file_id = GetConsoleWorldSwitchTarget(world_type)
+    local target, file_id = GetConsoleWorldIndexTarget(world_type)
     if target == nil then
         return false
     end
 
     local opts =
     {
-        kind = "world_switch",
+        kind = "world_index",
         reason = "console_switch",
         target = target,
         file_id = file_id,
@@ -192,22 +191,22 @@ function c_switchworld(world_type)
     if index:IsActive() then
         opts.reason = "console_advance"
         print("[Shard World Index] Advancing to "..tostring(file_id or world_type)..".")
-        return index:AdvanceWorldSwitch(opts)
+        return index:AdvanceWorldIndex(opts)
     end
 
     print("[Shard World Index] Switching to "..tostring(file_id or world_type)..".")
-    return index:StartWorldSwitch(opts)
+    return index:StartWorldIndex(opts)
 end
 
 function c_returnworld(reason)
-    local index = GetConsoleWorldSwitchIndex()
+    local index = GetConsoleWorldIndex()
     if index == nil then
         return false
     end
 
     local state = index:GetState()
     if state == nil or state.active ~= true then
-        print("[Shard World Index] No active normal world switch to return from.")
+        print("[Shard World Index] No active normal world index to return from.")
         return false
     end
     if state.kind == "adventure" then
@@ -215,7 +214,7 @@ function c_returnworld(reason)
         return false
     end
 
-    return index:ReturnFromWorldSwitch(reason or "console_return")
+    return index:ReturnFromWorldIndex(reason or "console_return")
 end
 
 function c_forest()
