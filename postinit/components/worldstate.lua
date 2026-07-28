@@ -16,29 +16,6 @@ AddComponentPostInit("worldstate", function(self, inst)
         return
     end
 
-    local OnWeatherTick = inst:GetEventCallbacks("weathertick", nil, "scripts/components/ToolUtil.lua")
-    if OnWeatherTick ~= nil then
-        inst:RemoveEventCallback("weathertick", OnWeatherTick)
-        inst:ListenForEvent("weathertick", function(src, data)
-            if TheWorld:IsAdventureLevel("RAINY") and
-                data ~= nil and
-                self.data.israining and
-                data.precipitationrate ~= nil and
-                data.precipitationrate > 0 then
-                local boosted = {}
-                for k, v in pairs(data) do
-                    boosted[k] = v
-                end
-                boosted.precipitationrate = data.precipitationrate * RAINY_WORLD_PRECIPITATION_MULT
-                OnWeatherTick(src, boosted)
-            else
-                OnWeatherTick(src, data)
-            end
-        end)
-    else
-        print("[worldstate] failed to find weathertick listener")
-    end
-
     local function GetFunctionInfo(fn)
         return debug ~= nil and debug.getinfo(fn, "Sln") or nil
     end
