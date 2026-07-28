@@ -2275,12 +2275,6 @@ local function write_world_index_topology_state(savedata, state)
 
     local client_state = build_world_index_client_state(state)
     savedata.map.topology.world_index_state = client_state
-    if state ~= nil and state.topology_key ~= nil then
-        savedata.map.topology[state.topology_key] = client_state
-    end
-    if state ~= nil and state.kind == "adventure" then
-        savedata.map.topology.adventure_state = client_state
-    end
 end
 
 local function commit_world_index_existing_target(index, state, target, cb)

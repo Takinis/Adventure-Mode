@@ -49,7 +49,7 @@ AddAdventureLevel({
 		spawnmode              = "fixed",
 		resettime              = "default",
 	},
-	-- hideminimap = true,
+	hideminimap = true,
 	teleportaction = "restart",
 	teleportmaxwell = "ADVENTURE_6_TELEPORTFAIL",
 })

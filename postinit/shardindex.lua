@@ -3,7 +3,41 @@
 
 GLOBAL.setfenv(1, GLOBAL)
 
+local populate_world_hooked = false
+
+local function GetAdventureSnapshot(savedata)
+    local topology = savedata ~= nil and savedata.map ~= nil and savedata.map.topology or nil
+    local state = topology ~= nil and (topology.world_index_state or topology.adventure_state) or nil
+
+    if type(state) ~= "table" or state.kind ~= "adventure" or state.active ~= true then
+        state = ShardGameIndex ~= nil and ShardGameIndex.adventure ~= nil and
+            ShardGameIndex.adventure:GetState() or nil
+    end
+
+    if type(state) ~= "table" or state.kind ~= "adventure" or state.active ~= true then
+        return nil
+    end
+
+    local chapter_count = state.total_chapters
+    if chapter_count == nil and type(state.level_sequence) == "table" then
+        chapter_count = #state.level_sequence
+    end
+
+    return
+    {
+        active = true,
+        secondary = state.secondary == true,
+        chapter = state.chapter,
+        chapter_count = chapter_count,
+        preset = state.current_preset,
+    }
+end
+
 local function HookPopulateWorld()
+    if populate_world_hooked then
+        return
+    end
+
     local level = 2
     while debug.getinfo(level, "f") ~= nil do
         local index = 1
@@ -22,21 +56,36 @@ local function HookPopulateWorld()
                     local prefab = assert(Prefabs[savedata.map.prefab], "Failed to find world prefab")
                     local constructor = prefab.fn
                     local is_adventure = savedata.map.topology.overrides.is_adventure
+                    local adventure_snapshot = GetAdventureSnapshot(savedata)
                     local common_postinit, common_scope_fn, common_postinit_index = ToolUtil.GetUpvalue(constructor, "common_postinit")
                     local master_postinit, master_scope_fn, master_postinit_index = ToolUtil.GetUpvalue(constructor, "master_postinit")
                     assert(common_postinit ~= nil, "Failed to find world constructor common_postinit")
                     assert(master_postinit ~= nil, "Failed to find world constructor master_postinit")
 
-                    print("[Adventure Mode] PopulateWorld is_adventure =", is_adventure)
-
                     debug.setupvalue(common_scope_fn, common_postinit_index, function(inst, ...)
                         inst.is_adventure = is_adventure
-                        print("[Adventure Mode] common_postinit is_adventure =", inst.is_adventure)
+                        function inst:IsAdventureActive()
+                            return adventure_snapshot ~= nil
+                        end
+                        function inst:GetAdventureChapter()
+                            return adventure_snapshot ~= nil and adventure_snapshot.chapter or nil
+                        end
+                        function inst:GetAdventureChapterCount()
+                            return adventure_snapshot ~= nil and adventure_snapshot.chapter_count or nil
+                        end
+                        function inst:GetAdventurePreset()
+                            return adventure_snapshot ~= nil and adventure_snapshot.preset or nil
+                        end
+                        function inst:IsAdventurePreset(preset)
+                            return adventure_snapshot ~= nil and adventure_snapshot.preset == preset
+                        end
                         return common_postinit(inst, ...)
                     end)
                     debug.setupvalue(master_scope_fn, master_postinit_index, function(inst, ...)
                         inst.is_adventure = is_adventure
-                        print("[Adventure Mode] master_postinit is_adventure =", inst.is_adventure)
+                        function inst:GetSecondaryShardPlayerCount()
+                            return ShardWorldIndex:GetSecondaryShardPlayerCount()
+                        end
                         return master_postinit(inst, ...)
                     end)
 
@@ -46,10 +95,15 @@ local function HookPopulateWorld()
                     if not rets[1] then
                         error(rets[2], 0)
                     end
+
+                    if TheWorld.ismastersim then
+                        TheWorld.net.components.adventure:SetSnapshot(adventure_snapshot)
+                    end
                     return unpack(rets, 2)
                 end
 
                 debug.setlocal(level, index, PopulateWorld)
+                populate_world_hooked = true
                 return
             end
 

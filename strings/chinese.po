@@ -16,6 +16,17 @@ msgctxt "STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER"
 msgid "Chapter %d of %d"
 msgstr "第%d/%d章"
 
+#. STRINGS.UI.ADVENTUREMODE_PRESENTATION_WAIT.TITLE
+msgctxt "STRINGS.UI.ADVENTUREMODE_PRESENTATION_WAIT.TITLE"
+msgid "Waiting for Other Players"
+msgstr "正在等待其他玩家"
+
+#. STRINGS.UI.ADVENTUREMODE_PRESENTATION_WAIT.PROGRESS
+#, lua-format
+msgctxt "STRINGS.UI.ADVENTUREMODE_PRESENTATION_WAIT.PROGRESS"
+msgid "Players ready: %d / %d\n%s"
+msgstr "已准备：%d / %d\n%s"
+
 #. STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE
 #, lua-format
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE"
@@ -48,6 +59,71 @@ msgstr "确定要返回到原来的世界吗？"
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE"
 msgid "The current world will be destroyed, begin the next Adventure Mode chapter? Every living player must confirm activation."
 msgstr "当前世界即将毁灭，是否开启下一章节？所有存活玩家必须确认激活。"
+
+#. STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.PRETTYNAME
+msgctxt "STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.PRETTYNAME"
+msgid "Enter Adventure Mode"
+msgstr "进入冒险模式"
+
+#. STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.DESC
+msgctxt "STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.DESC"
+msgid "Vote to enter Adventure Mode."
+msgstr "投票进入冒险模式。"
+
+#. STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTETITLEFMT
+msgctxt "STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTETITLEFMT"
+msgid "Enter Adventure Mode?"
+msgstr "是否进入冒险模式？"
+
+#. STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTENAMEFMT
+msgctxt "STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTENAMEFMT"
+msgid "vote to enter Adventure Mode"
+msgstr "进入冒险模式的投票"
+
+#. STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTEPASSEDFMT
+msgctxt "STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTEPASSEDFMT"
+msgid "Entering Adventure Mode in 5 seconds..."
+msgstr "将在5秒后进入冒险模式……"
+
+#. STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTEFAILEDFMT
+msgctxt "STRINGS.UI.BUILTINCOMMANDS.ADVENTUREMODE_ENTER.VOTEFAILEDFMT"
+msgid "The vote to enter Adventure Mode has failed."
+msgstr "进入冒险模式的投票未通过。"
+
+#. STRINGS.UI.ADVENTUREMODE_VOTE.ACTIVE
+msgctxt "STRINGS.UI.ADVENTUREMODE_VOTE.ACTIVE"
+msgid "Another vote is already in progress."
+msgstr "已有一项投票正在进行。"
+
+#. STRINGS.UI.ADVENTUREMODE_VOTE.ALREADY_ACTIVE
+msgctxt "STRINGS.UI.ADVENTUREMODE_VOTE.ALREADY_ACTIVE"
+msgid "Adventure Mode is already active."
+msgstr "冒险模式已经开始。"
+
+#. STRINGS.UI.ADVENTUREMODE_VOTE.FAILED
+msgctxt "STRINGS.UI.ADVENTUREMODE_VOTE.FAILED"
+msgid "Unable to start the Adventure Mode vote."
+msgstr "无法发起进入冒险模式的投票。"
+
+#. STRINGS.UI.ADVENTUREMODE_VOTE.MASTER_ONLY
+msgctxt "STRINGS.UI.ADVENTUREMODE_VOTE.MASTER_ONLY"
+msgid "The Adventure Mode vote must be started from the Master world."
+msgstr "只能在主世界发起进入冒险模式的投票。"
+
+#. STRINGS.UI.ADVENTUREMODE_VOTE.PENDING
+msgctxt "STRINGS.UI.ADVENTUREMODE_VOTE.PENDING"
+msgid "An Adventure Mode vote is already being started."
+msgstr "进入冒险模式的投票正在发起。"
+
+#. STRINGS.UI.ADVENTUREMODE_VOTE.TOO_FAR
+msgctxt "STRINGS.UI.ADVENTUREMODE_VOTE.TOO_FAR"
+msgid "Move closer to the Adventure Portal."
+msgstr "请靠近冒险之门。"
+
+#. STRINGS.UI.PLAYERSTATUSSCREEN.VOTECANNOTSTART.ADVENTUREMODE
+msgctxt "STRINGS.UI.PLAYERSTATUSSCREEN.VOTECANNOTSTART.ADVENTUREMODE"
+msgid "The Adventure Mode vote is no longer available."
+msgstr "当前无法发起进入冒险模式的投票。"
 
 #. STRINGS.UI.ENDGAME.BODY1
 msgctxt "STRINGS.UI.ENDGAME.BODY1"

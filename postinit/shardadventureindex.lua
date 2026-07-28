@@ -1,6 +1,6 @@
--- Adventure state manager for ShardIndex.
--- Generic WorldIndex state lives in ShardWorldIndex; this class owns chapter
--- rules, adventure player sessions, and shard sync flow.
+-- Adventure run manager for ShardIndex.
+-- Persistent run data lives in ShardWorldIndex; this class owns chapter rules,
+-- adventure player sessions, and shard sync flow.
 
 GLOBAL.setfenv(1, GLOBAL)
 
@@ -156,28 +156,23 @@ local function write_sidecar(index, data, cb)
     index.worldindex:WriteSidecar(data, cb, ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
-local set_adventure_state
-local get_adventure_state
-
 local player_starting_inventory = {}
 
-local give_adventure_first_chapter_start_inv
-
-local function inject_late_joiners_into_main_world(index, state, cb)
+local function inject_late_joiners_into_main_world(index, run, cb)
     cb = cb or NOOP
 
-    if state == nil or state.secondary or state.main == nil or state.main.session_id == nil or not TheNet:GetIsServer() then
+    if run == nil or run.secondary or run.main == nil or run.main.session_id == nil or not TheNet:GetIsServer() then
         cb()
         return
     end
 
-    local late_joiners = state.late_joiners
+    local late_joiners = run.late_joiners
     if late_joiners == nil or next(late_joiners) == nil then
         cb()
         return
     end
 
-    local sessions_by_userid = ShardWorldIndex:SessionListToMap(state.adventure_player_sessions)
+    local sessions_by_userid = ShardWorldIndex:SessionListToMap(run.adventure_player_sessions)
     for _, session in ipairs(ShardWorldIndex:CollectPlayerSessions() or {}) do
         sessions_by_userid[session.userid] = session
     end
@@ -195,7 +190,7 @@ local function inject_late_joiners_into_main_world(index, state, cb)
         return
     end
 
-    index.worldindex:InjectPlayerSessionsIntoExistingWorld(state.main.session_id, sessions, cb)
+    index.worldindex:InjectPlayerSessionsIntoExistingWorld(run.main.session_id, sessions, cb)
 end
 
 local function cache_adventure_player_session(index, inst, mark_late_joiner)
@@ -203,14 +198,14 @@ local function cache_adventure_player_session(index, inst, mark_late_joiner)
         return
     end
 
-    local state = get_adventure_state(index)
-    if state == nil or not state.active or state.secondary then
+    local run = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    if run == nil or not run.active or run.secondary then
         return
     end
 
-    if mark_late_joiner and (state.participants == nil or not state.participants[inst.userid]) then
-        state.late_joiners = state.late_joiners or {}
-        state.late_joiners[inst.userid] = true
+    if mark_late_joiner and (run.participants == nil or not run.participants[inst.userid]) then
+        run.late_joiners = run.late_joiners or {}
+        run.late_joiners[inst.userid] = true
     end
 
     local session = ShardWorldIndex:GetPlayerSaveSession(inst)
@@ -218,30 +213,21 @@ local function cache_adventure_player_session(index, inst, mark_late_joiner)
         return
     end
 
-    state.adventure_player_sessions = state.adventure_player_sessions or {}
+    run.adventure_player_sessions = run.adventure_player_sessions or {}
     local replaced = false
-    for i, existing in ipairs(state.adventure_player_sessions) do
+    for i, existing in ipairs(run.adventure_player_sessions) do
         if existing.userid == inst.userid then
-            state.adventure_player_sessions[i] = session
+            run.adventure_player_sessions[i] = session
             replaced = true
             break
         end
     end
     if not replaced then
-        table.insert(state.adventure_player_sessions, session)
+        table.insert(run.adventure_player_sessions, session)
     end
 
-    state.updated_at = os.time()
-    write_sidecar(index, state)
-end
-
-local function on_adventure_player_activated(index, inst)
-    cache_adventure_player_session(index, inst, true)
-    give_adventure_first_chapter_start_inv(index, inst)
-end
-
-local function on_adventure_player_deactivated(index, inst)
-    cache_adventure_player_session(index, inst, false)
+    run.updated_at = os.time()
+    write_sidecar(index, run)
 end
 
 local function send_force_players_to_master_rpc()
@@ -256,28 +242,28 @@ local function send_master_adventure_rpc(name, data)
     ShardWorldIndex:SendRPCToMasterShard("AdventureMode", name, data)
 end
 
-give_adventure_first_chapter_start_inv = function(index, inst)
+local function give_adventure_first_chapter_start_inv(index, inst)
     if TheWorld == nil or not TheWorld.ismastersim or index == nil then
         return
     end
 
-    local state = get_adventure_state(index)
-    if state == nil or
-        not state.active or
-        state.chapter ~= 1 or
-        not state.first_chapter_start_inv_pending or
+    local run = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    if run == nil or
+        not run.active or
+        run.chapter ~= 1 or
+        not run.first_chapter_start_inv_pending or
         inst == nil or
         inst.userid == nil or
         inst.userid == "" then
         return
     end
 
-    if state.participants == nil or not state.participants[inst.userid] then
+    if run.participants == nil or not run.participants[inst.userid] then
         return
     end
 
-    state.first_chapter_start_inv_given = state.first_chapter_start_inv_given or {}
-    if state.first_chapter_start_inv_given[inst.userid] then
+    run.first_chapter_start_inv_given = run.first_chapter_start_inv_given or {}
+    if run.first_chapter_start_inv_given[inst.userid] then
         return
     end
 
@@ -286,8 +272,17 @@ give_adventure_first_chapter_start_inv = function(index, inst)
         require("prefabs/player_common_extensions").GivePlayerStartingItems(inst, items, nil)
     end
 
-    state.first_chapter_start_inv_given[inst.userid] = true
-    write_sidecar(index, state)
+    run.first_chapter_start_inv_given[inst.userid] = true
+    write_sidecar(index, run)
+end
+
+local function on_adventure_player_activated(index, inst)
+    cache_adventure_player_session(index, inst, true)
+    give_adventure_first_chapter_start_inv(index, inst)
+end
+
+local function on_adventure_player_deactivated(index, inst)
+    cache_adventure_player_session(index, inst, false)
 end
 
 local function restart_current_slot_after_shard_rpc(index, extra_params)
@@ -296,74 +291,14 @@ local function restart_current_slot_after_shard_rpc(index, extra_params)
     index.worldindex:RestartCurrentSlotAfterShardRPC(extra_params)
 end
 
-local function get_adventure_preset_id(preset)
-    if type(preset) == "table" then
-        return preset.id or preset.worldgen_preset or preset.preset or preset.settings_preset
-    end
-    return preset
-end
-
-get_adventure_state = function(index)
-    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.net ~= nil and
-        TheWorld.net.components ~= nil and TheWorld.net.components.adventure ~= nil then
-        local state = TheWorld.net.components.adventure:GetState()
-        if state ~= nil then
-            return state
-        end
-    end
-
-    if TheWorld ~= nil and not TheWorld.ismastersim and TheWorld.topology ~= nil then
-        local state = TheWorld.topology.adventure_state
-        if state ~= nil then
-            return state
-        end
-    end
-
-    local state = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
-    if state ~= nil then
-        return state
-    end
-
-    return index.adventure_state
-end
-
-local function get_adventure_preset(index)
-    local state = get_adventure_state(index)
-    return get_adventure_preset_id(state ~= nil and state.current_preset or nil)
-end
-
-local function get_adventure_level(index)
-    local state = get_adventure_state(index)
-    return state ~= nil and state.active == true and get_adventure_preset_id(state.current_preset) or nil
-end
-
-local function get_adventure_chapter(state)
-    local chapter = state ~= nil and state.chapter or nil
-    return type(chapter) == "number" and chapter or nil
-end
-
-local function has_current_adventure_maxwell_intro_played(state, userid)
-    local chapter = get_adventure_chapter(state)
-    local played_chapters = state ~= nil and state.maxwell_intro_played_chapters or nil
+local function has_current_adventure_maxwell_intro_played(run)
+    local chapter = run ~= nil and run.chapter or nil
+    local played_chapters = run ~= nil and run.maxwell_intro_played_chapters or nil
     local played = type(played_chapters) == "table" and played_chapters[chapter] or nil
-    return state ~= nil and
-        state.active == true and
+    return run ~= nil and
+        run.active == true and
         chapter ~= nil and
-        type(userid) == "string" and
-        userid ~= "" and
-        type(played) == "table" and
-        played[userid] == true
-end
-
-set_adventure_state = function(index, state)
-    index.adventure_state = state
-
-    index.worldindex:SetState(state, ADVENTURE_WORLD_INDEX_FILE_ID)
-
-    if TheWorld ~= nil and TheWorld.ismastersim and TheWorld.net ~= nil and
-        TheWorld.net.components ~= nil and TheWorld.net.components.adventure ~= nil then
-        TheWorld.net.components.adventure:SetState(state)
-    end
+        (played == true or type(played) == "table" and next(played) ~= nil)
 end
 
 local function get_maxwell_throne_puppet_record(record)
@@ -390,13 +325,13 @@ local function get_maxwell_throne_puppet_record(record)
 end
 
 local function get_adventure_maxwell_throne_puppet(index)
-    local state = get_adventure_state(index)
-    return state ~= nil and get_maxwell_throne_puppet_record(state.maxwell_throne_puppet) or nil
+    local run = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    return run ~= nil and get_maxwell_throne_puppet_record(run.maxwell_throne_puppet) or nil
 end
 
 local function set_adventure_maxwell_throne_puppet(index, record)
-    local state = get_adventure_state(index)
-    if state == nil then
+    local run = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    if run == nil then
         return false
     end
 
@@ -405,34 +340,27 @@ local function set_adventure_maxwell_throne_puppet(index, record)
         return false
     end
 
-    state.maxwell_throne_puppet = puppet
-    state.updated_at = os.time()
-    write_sidecar(index, state)
+    run.maxwell_throne_puppet = puppet
+    run.updated_at = os.time()
+    write_sidecar(index, run)
     return true
 end
 
-local function mark_current_adventure_maxwell_intro_played(index, userid)
-    local state = get_adventure_state(index)
-    local chapter = get_adventure_chapter(state)
-    if state == nil or not state.active or chapter == nil or type(userid) ~= "string" or userid == "" then
+local function mark_current_adventure_maxwell_intro_played(index)
+    local run = index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    local chapter = run ~= nil and run.chapter or nil
+    if run == nil or not run.active or chapter == nil then
         return false
     end
 
-    state.maxwell_intro_played_chapters = state.maxwell_intro_played_chapters or {}
-    local played = state.maxwell_intro_played_chapters[chapter]
-
-    if type(played) ~= "table" then
-        played = {}
-        state.maxwell_intro_played_chapters[chapter] = played
-    end
-
-    if played[userid] then
+    run.maxwell_intro_played_chapters = run.maxwell_intro_played_chapters or {}
+    if run.maxwell_intro_played_chapters[chapter] == true then
         return true
     end
 
-    played[userid] = true
-    state.updated_at = os.time()
-    write_sidecar(index, state)
+    run.maxwell_intro_played_chapters[chapter] = true
+    run.updated_at = os.time()
+    write_sidecar(index, run)
     return true
 end
 
@@ -535,24 +463,12 @@ function ShardAdventureIndex:BuildPlaylist()
 end
 
 function ShardAdventureIndex:IsActive()
-    local state = get_adventure_state(self.index)
-    return state ~= nil and state.active == true
+    local run = self.index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    return run ~= nil and run.active == true
 end
 
 function ShardAdventureIndex:GetState()
-    return get_adventure_state(self.index)
-end
-
-function ShardAdventureIndex:GetPreset()
-    return get_adventure_preset(self.index)
-end
-
-function ShardAdventureIndex:GetLevel()
-    return get_adventure_level(self.index)
-end
-
-function ShardAdventureIndex:IsLevel(level)
-    return self:GetLevel() == level
+    return self.index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
 function ShardAdventureIndex:GetMaxwellThronePuppet()
@@ -563,12 +479,13 @@ function ShardAdventureIndex:SetMaxwellThronePuppet(record)
     return set_adventure_maxwell_throne_puppet(self.index, record)
 end
 
-function ShardAdventureIndex:IsCurrentMaxwellIntroPlayed(userid)
-    return has_current_adventure_maxwell_intro_played(get_adventure_state(self.index), userid)
+function ShardAdventureIndex:IsCurrentMaxwellIntroPlayed()
+    local run = self.index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    return has_current_adventure_maxwell_intro_played(run)
 end
 
-function ShardAdventureIndex:MarkCurrentMaxwellIntroPlayed(userid)
-    return mark_current_adventure_maxwell_intro_played(self.index, userid)
+function ShardAdventureIndex:MarkCurrentMaxwellIntroPlayed()
+    return mark_current_adventure_maxwell_intro_played(self.index)
 end
 
 function ShardAdventureIndex:Begin(opts, cb)
@@ -613,14 +530,13 @@ function ShardAdventureIndex:Begin(opts, cb)
     opts.chapter = initial_chapter
 
     local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[initial_chapter], worldindex:GetIndexShard())
-    local previous_state = get_adventure_state(index)
+    local previous_run = worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
     local main_player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
-    local state =
+    local run =
     {
         active = true,
         kind = "adventure",
         file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
-        topology_key = "adventure_state",
         reason = "begin",
         sequence_id = opts.sequence_id or "default",
         slot = index:GetSlot(),
@@ -639,13 +555,13 @@ function ShardAdventureIndex:Begin(opts, cb)
         first_chapter_start_inv_pending = initial_chapter == 1,
         first_chapter_start_inv_given = {},
         maxwell_intro_played_chapters = {},
-        maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_state ~= nil and previous_state.maxwell_throne_puppet or nil),
+        maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_run ~= nil and previous_run.maxwell_throne_puppet or nil),
     }
 
     worldindex:BeginWorldIndex({
         kind = "adventure",
         reason = "begin",
-        sequence_id = state.sequence_id,
+        sequence_id = run.sequence_id,
         target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
         file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         reuse_existing = false,
@@ -655,11 +571,8 @@ function ShardAdventureIndex:Begin(opts, cb)
         player_sessions = main_player_sessions,
         fallback_player_sessions = false,
         return_position = opts.return_position,
-        state = state,
+        state = run,
     }, function(success)
-        if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
-        end
         cb(success)
     end)
 end
@@ -706,12 +619,11 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
     opts.chapter = initial_chapter
 
     local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[initial_chapter], worldindex:GetIndexShard())
-    local state =
+    local run =
     {
         active = true,
         kind = "adventure",
         file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
-        topology_key = "adventure_state",
         secondary = true,
         reason = "begin",
         sequence_id = opts.sequence_id or "default",
@@ -734,18 +646,15 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
     worldindex:BeginWorldIndex({
         kind = "adventure",
         reason = "begin",
-        sequence_id = state.sequence_id,
+        sequence_id = run.sequence_id,
         target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
         file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
         reuse_existing = false,
         level_sequence = level_sequence,
         chapter = initial_chapter,
         keep_session = true,
-        state = state,
+        state = run,
     }, function(success)
-        if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
-        end
         cb(success)
     end)
 end
@@ -762,14 +671,14 @@ function ShardAdventureIndex:Advance(opts, cb)
     cb = cb or NOOP
     opts = opts or {}
 
-    local state = get_adventure_state(index)
-    if state == nil or not state.active or state.main == nil then
+    local run = worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    if run == nil or not run.active or run.main == nil then
         print("[Adventure Mode] No active adventure to advance.")
         cb(false)
         return
     end
 
-    local current_chapter = state.chapter or 1
+    local current_chapter = run.chapter or 1
     local next_chapter = opts.chapter or (current_chapter + 1)
     if type(next_chapter) ~= "number" then
         next_chapter = current_chapter + 1
@@ -780,13 +689,13 @@ function ShardAdventureIndex:Advance(opts, cb)
         cb(false)
         return
     end
-    if next_chapter > #state.level_sequence then
+    if next_chapter > #run.level_sequence then
         return self:ReturnToMainWorld("complete", cb)
     end
 
-    local next_preset = ShardWorldIndex:GetLevelForShard(state.level_sequence[next_chapter], worldindex:GetIndexShard())
+    local next_preset = ShardWorldIndex:GetLevelForShard(run.level_sequence[next_chapter], worldindex:GetIndexShard())
     local player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
-    local next_player_sessions = ShardWorldIndex:MergeSessionLists(player_sessions, state.adventure_player_sessions)
+    local next_player_sessions = ShardWorldIndex:MergeSessionLists(player_sessions, run.adventure_player_sessions)
     local pending_generation =
     {
         reason = "advance",
@@ -795,7 +704,7 @@ function ShardAdventureIndex:Advance(opts, cb)
         player_sessions = next_player_sessions,
         adventure_player_sessions = ShardWorldIndex:DeepCopy(next_player_sessions) or {},
         first_chapter_start_inv_pending = false,
-        cleanup_session_id = state.current_session_id,
+        cleanup_session_id = run.current_session_id,
         file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
     }
 
@@ -807,9 +716,6 @@ function ShardAdventureIndex:Advance(opts, cb)
         keep_session = true,
         pending_generation = pending_generation,
     }, function(success, chapter)
-        if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
-        end
         cb(success, chapter)
     end)
 end
@@ -824,19 +730,19 @@ function ShardAdventureIndex:AdvanceSecondary(opts, cb)
     cb = cb or NOOP
     opts = opts or {}
 
-    local state = get_adventure_state(index)
-    if state == nil or not state.active or state.main == nil then
+    local run = worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    if run == nil or not run.active or run.main == nil then
         print("[Adventure Mode] No active secondary adventure to advance.")
         cb(false)
         return
     end
 
-    local next_chapter = opts.chapter or ((state.chapter or 1) + 1)
-    if next_chapter > #state.level_sequence then
+    local next_chapter = opts.chapter or ((run.chapter or 1) + 1)
+    if next_chapter > #run.level_sequence then
         return self:ReturnToMainWorld("complete", cb)
     end
 
-    local next_preset = ShardWorldIndex:GetLevelForShard(state.level_sequence[next_chapter], worldindex:GetIndexShard())
+    local next_preset = ShardWorldIndex:GetLevelForShard(run.level_sequence[next_chapter], worldindex:GetIndexShard())
     local pending_generation =
     {
         reason = "advance",
@@ -845,7 +751,7 @@ function ShardAdventureIndex:AdvanceSecondary(opts, cb)
         player_sessions = nil,
         adventure_player_sessions = nil,
         first_chapter_start_inv_pending = false,
-        cleanup_session_id = state.current_session_id,
+        cleanup_session_id = run.current_session_id,
         file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
     }
 
@@ -857,9 +763,6 @@ function ShardAdventureIndex:AdvanceSecondary(opts, cb)
         keep_session = true,
         pending_generation = pending_generation,
     }, function(success, chapter)
-        if success then
-            set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
-        end
         cb(success, chapter)
     end)
 end
@@ -873,24 +776,23 @@ function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
     local worldindex = index.worldindex
     cb = cb or NOOP
 
-    local state = get_adventure_state(index)
-    if state == nil or not state.active or state.main == nil then
+    local run = worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
+    if run == nil or not run.active or run.main == nil then
         print("[Adventure Mode] No active adventure to return from.")
         cb(false)
         return
     end
 
-    inject_late_joiners_into_main_world(index, state, function()
+    inject_late_joiners_into_main_world(index, run, function()
         worldindex:ReturnToStoredWorld(reason or "return", function(success)
             if success then
-                worldindex:RestoreParentWorldIndex(state, function()
-                    set_adventure_state(index, worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID))
+                worldindex:RestoreParentWorldIndex(run, function()
                     cb(success)
                 end)
                 return
             end
             cb(success)
-        end, state.main.player_sessions)
+        end, run.main.player_sessions)
     end)
 end
 

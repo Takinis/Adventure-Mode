@@ -4,10 +4,9 @@ local MaxwellTalker = Class(function(self, inst)
     self.speeches = nil
     self.defaultvoice = "dontstarve/maxwell/talk_LP"
     self.canskip = false
-    self.player = nil
+    self.skip_requested = false
+    self.onfinishedfn = nil
     self._speech_task = nil
-    self._client_cutscene_active = false
-    self._player_cutscene_locked = false
     self._anim_remove_fn = function() self:RemoveAfterAnimation() end
 end)
 
@@ -15,60 +14,6 @@ local function SpawnMaxwellSmokeAt(inst)
     local fx = SpawnPrefab("maxwell_smoke")
     if fx ~= nil then
         fx.Transform:SetPosition(inst.Transform:GetWorldPosition())
-    end
-end
-
-local function IsPlayerValid(player)
-    return player ~= nil and player:IsValid() and player.userid ~= nil and player.userid ~= ""
-end
-
-local function GetSpawnPositionNearPlayer(player)
-    local x, y, z = player.Transform:GetWorldPosition()
-    local theta = (player.Transform:GetRotation() + 45) * DEGREES
-    return x + math.cos(theta) * 4, y, z - math.sin(theta) * 4
-end
-
-local function SendClientCutsceneRPC(player, rpc_name, ...)
-    if IsPlayerValid(player) then
-        SendModRPCToClient(GetClientModRPC("AdventureMode", rpc_name), player.userid, ...)
-    end
-end
-
-local function LockPlayerForCutscene(player)
-    if not IsPlayerValid(player) then
-        return
-    end
-
-    if player.components.locomotor ~= nil then
-        player.components.locomotor:Stop()
-        player.components.locomotor:StopMoving()
-    end
-
-    player:ClearBufferedAction()
-
-    if player.components.playercontroller ~= nil then
-        player.components.playercontroller:EnableMapControls(false)
-        player.components.playercontroller:Enable(false)
-    end
-
-    if player.sg ~= nil then
-        player.sg:GoToState("sleep")
-    end
-    return true
-end
-
-local function UnlockPlayerForCutscene(player)
-    if not IsPlayerValid(player) then
-        return
-    end
-
-    if player.sg ~= nil and
-        player.sg.currentstate ~= nil and
-        player.sg.currentstate.name == "sleep" then
-        player.sg:GoToState("wakeup")
-    elseif player.components.playercontroller ~= nil then
-        player.components.playercontroller:EnableMapControls(true)
-        player.components.playercontroller:Enable(true)
     end
 end
 
@@ -80,8 +25,12 @@ function MaxwellTalker:SetSpeech(speech)
     self.speech = speech
 end
 
+function MaxwellTalker:SetOnFinishedFn(fn)
+    self.onfinishedfn = fn
+end
+
 function MaxwellTalker:IsTalking()
-    return self._speech_task ~= nil or self:GetSpeechData() ~= nil
+    return self._speech_task ~= nil
 end
 
 function MaxwellTalker:ClearAnimRemoveCallback()
@@ -110,36 +59,6 @@ function MaxwellTalker:RemoveAfterAnimation()
     self:ClearAnimRemoveCallback()
     if self.inst:IsValid() then
         self.inst:Remove()
-    end
-end
-
-function MaxwellTalker:PositionForPlayer(player)
-    if not IsPlayerValid(player) then
-        return
-    end
-
-    local x, y, z = GetSpawnPositionNearPlayer(player)
-    self.inst.Transform:SetPosition(x, y, z)
-    self.inst.Transform:ClearTransformationHistory()
-    self.inst:FacePoint(player.Transform:GetWorldPosition())
-    player:FacePoint(self.inst.Transform:GetWorldPosition())
-end
-
-function MaxwellTalker:StartClientCutscene()
-    local x, y, z = self.inst.Transform:GetWorldPosition()
-    self._player_cutscene_locked = LockPlayerForCutscene(self.player) == true
-    SendClientCutsceneRPC(self.player, "StartMaxwellIntro", self.inst.GUID, x, y, z)
-    self._client_cutscene_active = true
-end
-
-function MaxwellTalker:StopClientCutscene()
-    if self._client_cutscene_active then
-        SendClientCutsceneRPC(self.player, "StopMaxwellIntro", self.inst.GUID)
-        self._client_cutscene_active = false
-    end
-    if self._player_cutscene_locked then
-        self._player_cutscene_locked = false
-        UnlockPlayerForCutscene(self.player)
     end
 end
 
@@ -182,16 +101,25 @@ end
 function MaxwellTalker:FinishSpeech(speech)
     self.canskip = false
     self:ShutUp()
-    self:StopClientCutscene()
+    if self.onfinishedfn ~= nil then
+        local onfinishedfn = self.onfinishedfn
+        self.onfinishedfn = nil
+        onfinishedfn(self.inst, true)
+    end
     self:PlayDisappearSequence(speech or self:GetSpeechData() or {})
 end
 
-function MaxwellTalker:CancelSpeech(player)
-    if not self.canskip or (player ~= nil and player ~= self.player) then
+function MaxwellTalker:RequestSkip()
+    local speech = self:GetSpeechData()
+    if speech == nil or speech.skippable ~= true then
         return false
     end
 
-    local speech = self:GetSpeechData()
+    self.skip_requested = true
+    if not self.canskip then
+        return true
+    end
+
     self:StopSpeechThread()
     self:FinishSpeech(speech)
     return true
@@ -211,6 +139,11 @@ function MaxwellTalker:PlaySpeechThread()
     self.inst:Show()
     self:PlayAppearSequence(speech)
     self.canskip = speech.skippable == true
+    if self.skip_requested and self.canskip then
+        self._speech_task = nil
+        self:FinishSpeech(speech)
+        return
+    end
 
     for _, section in ipairs(speech) do
         local wait = section.wait or 1
@@ -260,24 +193,20 @@ function MaxwellTalker:PlaySpeechThread()
     self:FinishSpeech(speech)
 end
 
-function MaxwellTalker:BeginSpeech(player)
+function MaxwellTalker:BeginSpeech(onfinishedfn)
     if not TheWorld.ismastersim or self._speech_task ~= nil then
         return false
     end
 
     local speech = self:GetSpeechData()
-    if speech == nil or not IsPlayerValid(player) then
+    if speech == nil then
         self.inst:Remove()
         return false
     end
 
-    self.player = player
-    self:PositionForPlayer(self.player)
+    self.skip_requested = false
+    self.onfinishedfn = onfinishedfn
     self.inst:Hide()
-
-    if speech.disableplayer then
-        self:StartClientCutscene()
-    end
 
     self._speech_task = self.inst:StartThread(function()
         self:PlaySpeechThread()
@@ -287,7 +216,11 @@ function MaxwellTalker:BeginSpeech(player)
 end
 
 function MaxwellTalker:OnRemoveFromEntity()
-    self:StopClientCutscene()
+    if self.onfinishedfn ~= nil then
+        local onfinishedfn = self.onfinishedfn
+        self.onfinishedfn = nil
+        onfinishedfn(self.inst, false)
+    end
     self:ClearAnimRemoveCallback()
     self:StopSpeechThread()
     self:ShutUp()

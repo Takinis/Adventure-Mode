@@ -3,9 +3,10 @@ GLOBAL.setfenv(1, GLOBAL)
 local TITLE_FADE_TIME = 1
 local TITLE_BLANK_TIME = .75
 local TITLE_ANIM_TIME = 4
-local TITLE_ACTIVATE_LEAD_TIME = 1
 local TITLE_FADE_TYPE = "black"
-local ACTIVE_FADE_TITLE_WAIT_TIME = .75
+local ACTIVATION_PRESENTATION_WAIT_TIME = .75
+local MAXWELL_INTRO_START_TIMEOUT = 50
+local MAXWELL_INTRO_RELEASE_TIME = 1.5
 local MAXWELL_INTRO_INPUTS =
 {
     CONTROL_PRIMARY,
@@ -16,37 +17,34 @@ local MAXWELL_INTRO_INPUTS =
     CONTROL_CONTROLLER_ACTION,
 }
 
-local title = nil
-local active_fade = nil
-local fade_timeout_task = nil
-local title_start_task = nil
-local title_activate_task = nil
-local wait_for_activate_fade = nil
-local maxwell_intro_state = nil
-
 if TheNet ~= nil and TheNet:IsDedicated() then
     return
 end
 
-local function CancelFadeTimeout()
-    if fade_timeout_task ~= nil then
-        fade_timeout_task:Cancel()
-        fade_timeout_task = nil
+local AdventureWaitingPopup = require("screens/adventurewaitingpopup")
+
+local queued_presentation = nil
+local active_presentation = nil
+local activation_fade = nil
+local activation_wait_task = nil
+local wait_for_activation_fade = nil
+local maxwell_intro = nil
+local maxwell_intro_release_task = nil
+local waiting_popup = nil
+local _Fade = FrontEnd.Fade
+
+local function CancelTask(task)
+    if task ~= nil then
+        task:Cancel()
     end
 end
 
-local function CancelTitleStartTask()
-    if title_start_task ~= nil then
-        title_start_task:Cancel()
-        title_start_task = nil
+local function ScheduleTask(delay, fn)
+    local host = TheWorld or ThePlayer
+    if host ~= nil then
+        return host:DoStaticTaskInTime(delay, fn)
     end
-end
-
-local function CancelTitleActivateTask()
-    if title_activate_task ~= nil then
-        title_activate_task:Cancel()
-        title_activate_task = nil
-    end
+    fn()
 end
 
 local function ClearFrontEnd(fe)
@@ -71,207 +69,139 @@ local function ClearFrontEnd(fe)
     end
 end
 
-local function ClearMaxwellIntroInputHandlers()
-    if maxwell_intro_state ~= nil and maxwell_intro_state.inputhandlers ~= nil then
-        for _, handler in ipairs(maxwell_intro_state.inputhandlers) do
-            handler:Remove()
-        end
-        maxwell_intro_state.inputhandlers = nil
+local function RunActivationCallback(presentation)
+    local fade = presentation ~= nil and presentation.fade or nil
+    if fade ~= nil and fade.cb ~= nil then
+        local cb = fade.cb
+        fade.cb = nil
+        cb()
     end
 end
 
-local function SendSkipMaxwellIntro()
-    if maxwell_intro_state ~= nil and maxwell_intro_state.guid ~= nil then
-        SendModRPCToServer(GetModRPC("AdventureMode", "SkipMaxwellIntro"), maxwell_intro_state.guid)
+local function ClearPresentationTasks(presentation)
+    if presentation == nil then
+        return
+    end
+    CancelTask(presentation.show_title_task)
+    CancelTask(presentation.intro_timeout_task)
+    presentation.show_title_task = nil
+    presentation.intro_timeout_task = nil
+end
+
+local function CloseWaitingPopup()
+    if waiting_popup ~= nil then
+        TheFrontEnd:PopScreen(waiting_popup)
+        waiting_popup = nil
     end
 end
 
-local function SetMaxwellIntroCamera(x, y, z)
-    local player = ThePlayer
-    if player ~= nil and player:IsValid() and TheCamera ~= nil then
-        local px, py, pz = player.Transform:GetWorldPosition()
-        TheCamera:SetOffset((Vector3(x, y, z) - Vector3(px, py, pz)) * .5 + Vector3(0, 2, 0))
-        TheCamera:SetDistance(15)
-        TheCamera:Snap()
+local function FinishPresentation(presentation)
+    if presentation == nil or active_presentation ~= presentation then
+        return
     end
+    ClearPresentationTasks(presentation)
+    RunActivationCallback(presentation)
+    active_presentation = nil
 end
 
-local function FaceLocalPlayerToMaxwellIntro(x, y, z)
-    local player = ThePlayer
-    if player ~= nil and player:IsValid() and
-        type(x) == "number" and type(y) == "number" and type(z) == "number" then
-        player:FacePoint(x, y, z)
-    end
-end
-
-local function StartMaxwellIntroCutscene(guid, x, y, z)
-    local player = ThePlayer
-    if player == nil or not player:IsValid() then
+local function RevealWorld(presentation)
+    if presentation == nil or active_presentation ~= presentation then
         return
     end
 
-    if maxwell_intro_state == nil then
-        maxwell_intro_state =
-        {
-            inputhandlers = {},
-        }
-    elseif maxwell_intro_state.inputhandlers == nil then
-        maxwell_intro_state.inputhandlers = {}
-    end
-
-    if guid ~= nil then
-        maxwell_intro_state.guid = guid
-    end
-
-    if player.HUD ~= nil then
-        player.HUD:Hide()
-    end
-
-    if player.components.playercontroller ~= nil then
-        player.components.playercontroller:Enable(false)
-    end
-
-    FaceLocalPlayerToMaxwellIntro(x, y, z)
-
-    if player.sg ~= nil then
-        player.sg:GoToState("sleep")
-    end
-
-    SetMaxwellIntroCamera(x, y, z)
-
-    if TheInput ~= nil and next(maxwell_intro_state.inputhandlers) == nil then
-        for _, control in ipairs(MAXWELL_INTRO_INPUTS) do
-            table.insert(maxwell_intro_state.inputhandlers, TheInput:AddControlHandler(control, SendSkipMaxwellIntro))
-        end
-    end
+    presentation.phase = "revealing"
+    local fade = presentation.fade
+    fade.fn(fade.fe, FADE_IN, TITLE_FADE_TIME, function()
+        FinishPresentation(presentation)
+    end, nil, nil, TITLE_FADE_TYPE)
 end
 
-local function StopMaxwellIntroCutscene(guid)
-    if maxwell_intro_state ~= nil and guid ~= nil and maxwell_intro_state.guid ~= guid then
+local function AbortPresentation(presentation_id)
+    local presentation = active_presentation
+    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" then
+        return
+    end
+    CloseWaitingPopup()
+    RevealWorld(presentation)
+end
+
+local function WaitForMaxwellIntro(presentation)
+    if active_presentation ~= presentation then
         return
     end
 
-    local player = ThePlayer
-    ClearMaxwellIntroInputHandlers()
-    maxwell_intro_state = nil
+    presentation.phase = "waiting_for_intro"
+    RunActivationCallback(presentation)
+    _Fade(TheFrontEnd, FADE_OUT, 0, nil, nil, nil, TITLE_FADE_TYPE)
+    CloseWaitingPopup()
+    waiting_popup = AdventureWaitingPopup()
+    TheFrontEnd:PushScreen(waiting_popup)
+    SendModRPCToServer(GetModRPC("AdventureMode", "AdventurePresentationReady"), presentation.id)
 
-    if player ~= nil and player:IsValid() then
-        if player.sg ~= nil and player.sg.currentstate ~= nil and player.sg.currentstate.name == "sleep" then
-            player.sg:GoToState("wakeup")
-        end
-
-        player:DoTaskInTime(1.5, function()
-            if ThePlayer == player and player:IsValid() then
-                if player.components.playercontroller ~= nil then
-                    player.components.playercontroller:Enable(true)
-                end
-                if player.HUD ~= nil then
-                    player.HUD:Show()
-                end
-                if TheCamera ~= nil then
-                    TheCamera:SetDefault()
-                end
-            end
-        end)
-    elseif TheCamera ~= nil then
-        TheCamera:SetDefault()
-    end
+    presentation.intro_timeout_task = ScheduleTask(MAXWELL_INTRO_START_TIMEOUT, function()
+        presentation.intro_timeout_task = nil
+        AbortPresentation(presentation.id)
+    end)
 end
 
-local function RequestMaxwellIntroAfterTitle(data)
-    if data == nil or ThePlayer == nil then
-        return
-    end
-
-    if data.play_maxwell_intro then
-        TheFrontEnd:BeginMaxwellIntroCutscene()
-        SendModRPCToServer(GetModRPC("AdventureMode", "RequestMaxwellIntroAfterTitle"))
-    elseif ThePlayer.sg ~= nil then
-        ThePlayer.sg:GoToState("wakeup")
-    end
-end
-
-local function StartTitleFade(fade)
-    local data = title
-    if data == nil then
+local function StartPresentation(fade)
+    local presentation = queued_presentation
+    if presentation == nil then
         return false
     end
 
-    title = nil
+    queued_presentation = nil
+    presentation.fade = fade
+    presentation.phase = "title"
+    active_presentation = presentation
 
-    CancelTitleStartTask()
-    CancelTitleActivateTask()
     ClearFrontEnd(fade.fe)
+    fade.fe:HideTitle()
 
-    local function ShowQueuedTitle()
-        title_start_task = nil
-        if fade.fe ~= nil then
-            fade.fe:ShowTitle(data.level, data.chapter)
+    presentation.show_title_task = ScheduleTask(TITLE_BLANK_TIME, function()
+        presentation.show_title_task = nil
+        if active_presentation == presentation then
+            fade.fe:ShowTitle(presentation.title, presentation.subtitle)
         end
-    end
+    end)
 
-    if TheWorld ~= nil or ThePlayer ~= nil then
-        title_start_task = (TheWorld or ThePlayer):DoStaticTaskInTime(TITLE_BLANK_TIME, ShowQueuedTitle)
-    else
-        ShowQueuedTitle()
-    end
-
-    local activated = false
-    local function ActivateBeforeTitleEnds()
-        if not activated then
-            activated = true
-            if fade.cb ~= nil then
-                local cb = fade.cb
-                fade.cb = nil
-                cb()
-            end
-            RequestMaxwellIntroAfterTitle(data)
+    local function OnTitleFinished()
+        if active_presentation ~= presentation then
+            return
         end
-    end
-
-    local function RunActivateTask()
-        title_activate_task = nil
-        ActivateBeforeTitleEnds()
-    end
-
-    local activate_time = math.max(0, TITLE_BLANK_TIME + TITLE_ANIM_TIME - TITLE_ACTIVATE_LEAD_TIME)
-    if TheWorld ~= nil or ThePlayer ~= nil then
-        title_activate_task = (TheWorld or ThePlayer):DoStaticTaskInTime(activate_time, RunActivateTask)
-    else
-        ActivateBeforeTitleEnds()
+        fade.fe:HideTitle()
+        if presentation.play_maxwell_intro then
+            WaitForMaxwellIntro(presentation)
+        end
     end
 
     fade.fn(fade.fe, FADE_IN, TITLE_FADE_TIME, function()
-        CancelTitleStartTask()
-        CancelTitleActivateTask()
-        ActivateBeforeTitleEnds()
-        fade.fe:HideTitle()
-    end, TITLE_BLANK_TIME + TITLE_ANIM_TIME, nil, TITLE_FADE_TYPE)
-
+        FinishPresentation(presentation)
+    end, TITLE_BLANK_TIME + TITLE_ANIM_TIME, OnTitleFinished, TITLE_FADE_TYPE)
     return true
 end
 
-local function ResumeActivateFade()
-    fade_timeout_task = nil
-
-    local fade = active_fade
+local function ResumeActivationFade()
+    activation_wait_task = nil
+    local fade = activation_fade
+    activation_fade = nil
     if fade == nil then
         return
     end
 
-    active_fade = nil
-    if not StartTitleFade(fade) then
+    if not StartPresentation(fade) then
         fade.fn(fade.fe, FADE_IN, fade.time, fade.cb, fade.delay, fade.delaycb, fade.fade_type)
     end
 end
 
-local function ConsumeActivateFade(fe, fade_fn, fade_dir, fade_time, cb, delay, delaycb, fade_type)
-    if fe ~= TheFrontEnd or fade_dir ~= FADE_IN or not wait_for_activate_fade then
+local function ConsumeActivationFade(fe, fade_fn, fade_dir, fade_time, cb, delay, delaycb, fade_type)
+    if fe ~= TheFrontEnd or fade_dir ~= FADE_IN or not wait_for_activation_fade then
         return false
     end
 
-    wait_for_activate_fade = false
-    active_fade = {
+    wait_for_activation_fade = false
+    activation_fade =
+    {
         fe = fe,
         fn = fade_fn,
         time = fade_time,
@@ -281,78 +211,224 @@ local function ConsumeActivateFade(fe, fade_fn, fade_dir, fade_time, cb, delay, 
         fade_type = fade_type,
     }
 
-    if StartTitleFade(active_fade) then
-        active_fade = nil
-    elseif TheWorld ~= nil or ThePlayer ~= nil then
-        fade_timeout_task = (TheWorld or ThePlayer):DoStaticTaskInTime(ACTIVE_FADE_TITLE_WAIT_TIME, ResumeActivateFade)
+    if StartPresentation(activation_fade) then
+        activation_fade = nil
     else
-        ResumeActivateFade()
+        activation_wait_task = ScheduleTask(ACTIVATION_PRESENTATION_WAIT_TIME, ResumeActivationFade)
     end
-
     return true
 end
 
-local function QueueAdventureTitle(level, chapter, play_maxwell_intro)
-    if active_fade ~= nil then
-        title = { level = level, chapter = chapter, play_maxwell_intro = play_maxwell_intro == true }
-        CancelFadeTimeout()
-        ResumeActivateFade()
-    elseif wait_for_activate_fade ~= false then
-        title = { level = level, chapter = chapter, play_maxwell_intro = play_maxwell_intro == true }
+local function StartStandalonePresentation()
+    if queued_presentation == nil or active_presentation ~= nil then
+        return
+    end
+
+    _Fade(TheFrontEnd, FADE_OUT, TITLE_FADE_TIME, function()
+        StartPresentation({
+            fe = TheFrontEnd,
+            fn = _Fade,
+            time = TITLE_FADE_TIME,
+            fade_type = TITLE_FADE_TYPE,
+        })
+    end, nil, nil, TITLE_FADE_TYPE)
+end
+
+local function QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro)
+    if type(presentation_id) ~= "string" or presentation_id == "" then
+        return
+    end
+    if active_presentation ~= nil and active_presentation.id == presentation_id then
+        return
+    end
+    if queued_presentation ~= nil and queued_presentation.id == presentation_id then
+        return
+    end
+
+    queued_presentation =
+    {
+        id = presentation_id,
+        title = title,
+        subtitle = subtitle,
+        play_maxwell_intro = play_maxwell_intro == true,
+    }
+
+    if activation_fade ~= nil then
+        CancelTask(activation_wait_task)
+        activation_wait_task = nil
+        ResumeActivationFade()
+    elseif wait_for_activation_fade == false then
+        StartStandalonePresentation()
     end
 end
 
-local function OnLocalPlayerActivated(fe, inst)
-    if inst == ThePlayer then
-        wait_for_activate_fade =
-            TheWorld ~= nil and not TheWorld.isdeactivated and
-            not inst.isseamlessswaptarget and
-            (inst.player_classified == nil or inst.player_classified.isfadein:value())
+local function ClearMaxwellIntroInputHandlers()
+    if maxwell_intro ~= nil and maxwell_intro.inputhandlers ~= nil then
+        for _, handler in ipairs(maxwell_intro.inputhandlers) do
+            handler:Remove()
+        end
+        maxwell_intro.inputhandlers = nil
+    end
+end
 
-        if not wait_for_activate_fade then
-            title = nil
+local function SendSkipMaxwellIntro()
+    if maxwell_intro ~= nil and maxwell_intro.guid ~= nil then
+        SendModRPCToServer(
+            GetModRPC("AdventureMode", "SkipMaxwellIntro"),
+            maxwell_intro.presentation_id,
+            maxwell_intro.guid
+        )
+    end
+end
+
+local function UpdateAdventurePresentationWait(presentation_id, ready, total)
+    local presentation = active_presentation
+    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" or
+        waiting_popup == nil then
+        return
+    end
+    waiting_popup:SetProgress(ready, total)
+end
+
+local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
+    local presentation = active_presentation
+    local player = ThePlayer
+    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" or
+        player == nil or not player:IsValid() then
+        return
+    end
+
+    CancelTask(presentation.intro_timeout_task)
+    presentation.intro_timeout_task = nil
+    presentation.phase = "intro"
+    CloseWaitingPopup()
+    CancelTask(maxwell_intro_release_task)
+    maxwell_intro_release_task = nil
+
+    maxwell_intro =
+    {
+        presentation_id = presentation_id,
+        guid = guid,
+        inputhandlers = {},
+    }
+
+    if player.HUD ~= nil then
+        player.HUD:Hide()
+    end
+    player:FacePoint(x, y, z)
+
+    if TheCamera ~= nil then
+        local px, py, pz = player.Transform:GetWorldPosition()
+        TheCamera:SetOffset((Vector3(x, y, z) - Vector3(px, py, pz)) * .5 + Vector3(0, 2, 0))
+        TheCamera:SetDistance(15)
+        TheCamera:Snap()
+    end
+
+    if TheInput ~= nil then
+        for _, control in ipairs(MAXWELL_INTRO_INPUTS) do
+            table.insert(maxwell_intro.inputhandlers, TheInput:AddControlHandler(control, SendSkipMaxwellIntro))
         end
     end
+
+    _Fade(TheFrontEnd, FADE_IN, TITLE_FADE_TIME, nil, nil, nil, TITLE_FADE_TYPE)
+    ClearPresentationTasks(presentation)
+    active_presentation = nil
 end
 
-local function OnLocalPlayerDeactivated(fe, inst)
-    if inst == ThePlayer then
-        wait_for_activate_fade = nil
-        title = nil
-        active_fade = nil
-        CancelFadeTimeout()
-        CancelTitleStartTask()
-        CancelTitleActivateTask()
+local function StopMaxwellIntroCutscene(presentation_id, guid)
+    if maxwell_intro == nil or maxwell_intro.presentation_id ~= presentation_id or maxwell_intro.guid ~= guid then
+        return
+    end
+
+    local player = ThePlayer
+    ClearMaxwellIntroInputHandlers()
+    maxwell_intro = nil
+
+    maxwell_intro_release_task = ScheduleTask(MAXWELL_INTRO_RELEASE_TIME, function()
+        maxwell_intro_release_task = nil
+        if ThePlayer ~= player or player == nil or not player:IsValid() then
+            return
+        end
+        if player.HUD ~= nil then
+            player.HUD:Show()
+        end
+        if TheCamera ~= nil then
+            TheCamera:SetDefault()
+        end
+    end)
+end
+
+local function OnLocalPlayerActivated(inst)
+    if inst ~= ThePlayer then
+        return
+    end
+
+    wait_for_activation_fade =
+        TheWorld ~= nil and not TheWorld.isdeactivated and
+        not inst.isseamlessswaptarget and
+        (inst.player_classified == nil or inst.player_classified.isfadein:value())
+
+    if not wait_for_activation_fade then
+        StartStandalonePresentation()
     end
 end
 
-function FrontEnd:QueueAdventureTitle(level, chapter, play_maxwell_intro)
-    QueueAdventureTitle(level, chapter, play_maxwell_intro)
+local function OnLocalPlayerDeactivated(inst)
+    if inst ~= ThePlayer then
+        return
+    end
+
+    wait_for_activation_fade = nil
+    queued_presentation = nil
+    ClearPresentationTasks(active_presentation)
+    active_presentation = nil
+    activation_fade = nil
+    CancelTask(activation_wait_task)
+    activation_wait_task = nil
+    ClearMaxwellIntroInputHandlers()
+    maxwell_intro = nil
+    CancelTask(maxwell_intro_release_task)
+    maxwell_intro_release_task = nil
+    CloseWaitingPopup()
+    TheFrontEnd:HideTitle()
+    if inst.HUD ~= nil then
+        inst.HUD:Show()
+    end
+    if TheCamera ~= nil then
+        TheCamera:SetDefault()
+    end
+end
+
+function FrontEnd:QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro)
+    QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro)
+end
+
+function FrontEnd:AbortAdventurePresentation(presentation_id)
+    AbortPresentation(presentation_id)
+end
+
+function FrontEnd:UpdateAdventurePresentationWait(presentation_id, ready, total)
+    UpdateAdventurePresentationWait(presentation_id, ready, total)
 end
 
 function FrontEnd:OnLocalPlayerActivated(inst)
-    OnLocalPlayerActivated(self, inst)
+    OnLocalPlayerActivated(inst)
 end
 
 function FrontEnd:OnLocalPlayerDeactivated(inst)
-    OnLocalPlayerDeactivated(self, inst)
+    OnLocalPlayerDeactivated(inst)
 end
 
-function FrontEnd:BeginMaxwellIntroCutscene()
-    StartMaxwellIntroCutscene(nil)
+function FrontEnd:StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
+    StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
 end
 
-function FrontEnd:StartMaxwellIntroCutscene(guid, x, y, z)
-    StartMaxwellIntroCutscene(guid, x, y, z)
+function FrontEnd:StopMaxwellIntroCutscene(presentation_id, guid)
+    StopMaxwellIntroCutscene(presentation_id, guid)
 end
 
-function FrontEnd:StopMaxwellIntroCutscene(guid)
-    StopMaxwellIntroCutscene(guid)
-end
-
-local _Fade = FrontEnd.Fade
 function FrontEnd:Fade(...)
-    if not ConsumeActivateFade(self, _Fade, ...) then
+    if not ConsumeActivationFade(self, _Fade, ...) then
         return _Fade(self, ...)
     end
 end

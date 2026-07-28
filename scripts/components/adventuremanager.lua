@@ -8,7 +8,7 @@ return Class(function(self, inst)
     local watched_players = {}
 
     local function IsTwoLands()
-        return TheWorld:IsAdventureLevel("TWOLANDS")
+        return TheWorld:IsAdventurePreset("TWOLANDS")
     end
 
     local function IsPartsIslandArea(area)

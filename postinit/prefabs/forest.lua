@@ -4,7 +4,7 @@ GLOBAL.setfenv(1, GLOBAL)
 AddPrefabPostInit("forest", function(inst)
     if TheWorld.is_adventure then
         TheWorld.Map:AlwaysDrawWaves(true)
-        if TheWorld:IsAdventureLevel("ENDING") then -- 终章没有海洋特效
+        if TheWorld:IsAdventurePreset("ENDING") then -- 终章没有海洋特效
             TheWorld.Map:AlwaysDrawWaves(false)
         end
         TheWorld.Map:DoOceanRender(false)

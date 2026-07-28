@@ -6,8 +6,9 @@ GLOBAL.setfenv(1, GLOBAL)
 local Levels = require("map/levels")
 local EndGameDialog = require("screens/endgamedialog")
 
-AddClientModRPCHandler("AdventureMode", "ShowTitle", function(preset, chapter, total, play_maxwell_intro)
-    if type(chapter) ~= "number" or type(total) ~= "number" then
+AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(presentation_id, preset, chapter, total, play_maxwell_intro)
+    if type(presentation_id) ~= "string" or presentation_id == "" or
+        type(chapter) ~= "number" or type(total) ~= "number" then
         return
     end
 
@@ -15,27 +16,49 @@ AddClientModRPCHandler("AdventureMode", "ShowTitle", function(preset, chapter, t
         local level = type(preset) == "string" and Levels.GetNameForLevelID(preset) or nil
         level = level or tostring(preset or "Adventure")
         local chapter_text = string.format(STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER, chapter, total)
-        TheFrontEnd:QueueAdventureTitle(level, chapter_text, play_maxwell_intro == true)
+        TheFrontEnd:QueueAdventurePresentation(presentation_id, level, chapter_text, play_maxwell_intro == true)
     end
 end)
 
-AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(guid, x, y, z)
-    if type(guid) ~= "number" or type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(presentation_id, guid, x, y, z)
+    if type(presentation_id) ~= "string" or presentation_id == "" or type(guid) ~= "number" or
+        type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
         return
     end
 
     if TheFrontEnd ~= nil then
-        TheFrontEnd:StartMaxwellIntroCutscene(guid, x, y, z)
+        TheFrontEnd:StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
     end
 end)
 
-AddClientModRPCHandler("AdventureMode", "StopMaxwellIntro", function(guid)
-    if guid ~= nil and type(guid) ~= "number" then
+AddClientModRPCHandler("AdventureMode", "UpdateAdventurePresentationWait", function(presentation_id, ready, total)
+    if type(presentation_id) ~= "string" or presentation_id == "" or
+        type(ready) ~= "number" or type(total) ~= "number" then
         return
     end
 
     if TheFrontEnd ~= nil then
-        TheFrontEnd:StopMaxwellIntroCutscene(guid)
+        TheFrontEnd:UpdateAdventurePresentationWait(presentation_id, ready, total)
+    end
+end)
+
+AddClientModRPCHandler("AdventureMode", "StopMaxwellIntro", function(presentation_id, guid)
+    if type(presentation_id) ~= "string" or presentation_id == "" or type(guid) ~= "number" then
+        return
+    end
+
+    if TheFrontEnd ~= nil then
+        TheFrontEnd:StopMaxwellIntroCutscene(presentation_id, guid)
+    end
+end)
+
+AddClientModRPCHandler("AdventureMode", "AbortAdventurePresentation", function(presentation_id)
+    if type(presentation_id) ~= "string" or presentation_id == "" then
+        return
+    end
+
+    if TheFrontEnd ~= nil then
+        TheFrontEnd:AbortAdventurePresentation(presentation_id)
     end
 end)
 
@@ -100,7 +123,6 @@ AddClientModRPCHandler("AdventureMode", "StartMaxwellThroneCutscene", function(g
     end
 
     if TheCamera ~= nil then
-        TheCamera:SetDefault()
         TheCamera:CutsceneMode(true)
         TheCamera:SetCustomLocation(Vector3(x, y, z))
         TheCamera:SetGains(0.5, 0.1, 2)
@@ -363,7 +385,7 @@ AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
     if inst:HasTag("teleportato") then
         inst:SetPlayerActivation(player, data.active)
     elseif data.active then
-        inst:Adventure(player)
+        inst:RequestAdventureEntry(player)
     elseif inst.components.activatable ~= nil then
         inst.components.activatable.inactive = true
     end
@@ -421,23 +443,27 @@ AddModRPCHandler("AdventureMode", "ConfirmMaxwellThroneEndGameDialog", function(
     end
 end)
 
-AddModRPCHandler("AdventureMode", "SkipMaxwellIntro", function(player, guid)
-    if type(guid) ~= "number" or player == nil or not player:IsValid() then
+AddModRPCHandler("AdventureMode", "SkipMaxwellIntro", function(player, presentation_id, guid)
+    if type(presentation_id) ~= "string" or presentation_id == "" or #presentation_id > 256 or
+        type(guid) ~= "number" or player == nil or not player:IsValid() then
         return
     end
 
-    local inst = Ents[guid]
-    if inst ~= nil and inst:IsValid() and inst.prefab == "maxwellintro" and
-        inst.components.maxwelltalker ~= nil then
-        inst.components.maxwelltalker:CancelSpeech(player)
+    local maxwell_intro = TheWorld ~= nil and TheWorld.components.maxwellintrospawner or nil
+    if maxwell_intro ~= nil then
+        maxwell_intro:RequestSkip(player, presentation_id, guid)
     end
 end)
 
-AddModRPCHandler("AdventureMode", "RequestMaxwellIntroAfterTitle", function(player)
-    local maxwell_intro = player ~= nil and player.components ~= nil and player.components.maxwellintrospawner or nil
-    local started = maxwell_intro ~= nil and maxwell_intro:StartCurrentChapter()
-    if not started and player ~= nil and player.userid ~= nil and player.userid ~= "" then
-        SendModRPCToClient(GetClientModRPC("AdventureMode", "StopMaxwellIntro"), player.userid)
+AddModRPCHandler("AdventureMode", "AdventurePresentationReady", function(player, presentation_id)
+    if type(presentation_id) ~= "string" or presentation_id == "" or #presentation_id > 256 then
+        return
+    end
+
+    local maxwell_intro = TheWorld ~= nil and TheWorld.components.maxwellintrospawner or nil
+    local ready = maxwell_intro ~= nil and maxwell_intro:SetPlayerReady(player, presentation_id)
+    if not ready and player ~= nil and player.userid ~= nil and player.userid ~= "" then
+        SendModRPCToClient(GetClientModRPC("AdventureMode", "AbortAdventurePresentation"), player.userid, presentation_id)
     end
 end)
 

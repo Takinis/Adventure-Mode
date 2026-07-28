@@ -8,6 +8,7 @@ local modules = {
     "assets",
     "tuning",
     "containers",
+    "vote",
     "RPC",
     "commands",
     "recipes",

@@ -37,14 +37,14 @@ function c_adventure_last()
         return false
     end
 
-    local state = ShardGameIndex.adventure:GetState()
-    local total = state ~= nil and state.level_sequence ~= nil and #state.level_sequence or 0
-    if state == nil or not state.active or total <= 0 then
+    local run = ShardGameIndex.adventure:GetState()
+    local total = run ~= nil and run.level_sequence ~= nil and #run.level_sequence or 0
+    if run == nil or not run.active or total <= 0 then
         print("[Adventure Mode] No active adventure to jump.")
         return false
     end
 
-    local chapter = state.chapter or 1
+    local chapter = run.chapter or 1
     if chapter >= total then
         print("[Adventure Mode] Already at the final chapter.")
         return false
