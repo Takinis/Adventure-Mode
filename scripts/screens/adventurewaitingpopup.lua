@@ -8,6 +8,7 @@ local AdventureWaitingPopup = Class(GenericWaitingPopup, function(self)
         nil,
         true
     )
+    self.black:SetTint(0, 0, 0, 1)
     self.ready = 0
     self.total = 0
 end)

@@ -95,6 +95,13 @@ local function CloseWaitingPopup()
     end
 end
 
+local function ShowWaitingPopup()
+    if waiting_popup == nil then
+        waiting_popup = AdventureWaitingPopup()
+        TheFrontEnd:PushScreen(waiting_popup)
+    end
+end
+
 local function FinishPresentation(presentation)
     if presentation == nil or active_presentation ~= presentation then
         return
@@ -118,43 +125,50 @@ end
 
 local function AbortPresentation(presentation_id)
     local presentation = active_presentation
-    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" then
+    if presentation == nil or presentation.id ~= presentation_id or
+        (presentation.phase ~= "waiting_for_title" and presentation.phase ~= "title" and
+            presentation.phase ~= "waiting_for_intro") then
         return
     end
+    ClearPresentationTasks(presentation)
     CloseWaitingPopup()
+    TheFrontEnd:HideTitle()
     RevealWorld(presentation)
 end
 
-local function WaitForMaxwellIntro(presentation)
-    if active_presentation ~= presentation then
-        return
-    end
-
-    presentation.phase = "waiting_for_intro"
-    RunActivationCallback(presentation)
-    CloseWaitingPopup()
-    waiting_popup = AdventureWaitingPopup()
-    TheFrontEnd:PushScreen(waiting_popup)
-    _Fade(TheFrontEnd, FADE_IN, 0, nil, nil, nil, TITLE_FADE_TYPE)
-    SendModRPCToServer(GetModRPC("AdventureMode", "AdventurePresentationReady"), presentation.id)
-
+local function RestartIntroTimeout(presentation)
+    CancelTask(presentation.intro_timeout_task)
     presentation.intro_timeout_task = ScheduleTask(MAXWELL_INTRO_START_TIMEOUT, function()
         presentation.intro_timeout_task = nil
         AbortPresentation(presentation.id)
     end)
 end
 
-local function StartPresentation(fade)
-    local presentation = queued_presentation
-    if presentation == nil then
-        return false
+local function WaitForPlayers(presentation)
+    if active_presentation ~= presentation then
+        return
     end
 
-    queued_presentation = nil
-    presentation.fade = fade
-    presentation.phase = "title"
-    active_presentation = presentation
+    presentation.phase = "waiting_for_title"
+    RunActivationCallback(presentation)
+    CloseWaitingPopup()
+    ShowWaitingPopup()
+    _Fade(TheFrontEnd, FADE_IN, 0, nil, nil, nil, TITLE_FADE_TYPE)
+    SendModRPCToServer(GetModRPC("AdventureMode", "AdventurePresentationReady"), presentation.id)
+    RestartIntroTimeout(presentation)
+end
 
+local function StartTitle(presentation)
+    if presentation == nil or active_presentation ~= presentation then
+        return
+    end
+
+    local fade = presentation.fade
+    presentation.phase = "title"
+    if presentation.play_maxwell_intro then
+        RestartIntroTimeout(presentation)
+    end
+    CloseWaitingPopup()
     ClearFrontEnd(fade.fe)
     fade.fe:HideTitle()
 
@@ -171,13 +185,45 @@ local function StartPresentation(fade)
         end
         fade.fe:HideTitle()
         if presentation.play_maxwell_intro then
-            WaitForMaxwellIntro(presentation)
+            presentation.phase = "waiting_for_intro"
+            _Fade(TheFrontEnd, FADE_OUT, 0, nil, nil, nil, TITLE_FADE_TYPE)
+            SendModRPCToServer(GetModRPC("AdventureMode", "AdventureTitleFinished"), presentation.id)
         end
     end
 
-    fade.fn(fade.fe, FADE_IN, TITLE_FADE_TIME, function()
-        FinishPresentation(presentation)
-    end, TITLE_BLANK_TIME + TITLE_ANIM_TIME, OnTitleFinished, TITLE_FADE_TYPE)
+    local on_fade_in_complete = nil
+    if not presentation.play_maxwell_intro then
+        on_fade_in_complete = function()
+            FinishPresentation(presentation)
+        end
+    end
+
+    fade.fn(
+        fade.fe,
+        FADE_IN,
+        TITLE_FADE_TIME,
+        on_fade_in_complete,
+        TITLE_BLANK_TIME + TITLE_ANIM_TIME,
+        OnTitleFinished,
+        TITLE_FADE_TYPE
+    )
+end
+
+local function StartPresentation(fade)
+    local presentation = queued_presentation
+    if presentation == nil then
+        return false
+    end
+
+    queued_presentation = nil
+    presentation.fade = fade
+    active_presentation = presentation
+
+    if presentation.play_maxwell_intro then
+        WaitForPlayers(presentation)
+    else
+        StartTitle(presentation)
+    end
     return true
 end
 
@@ -283,11 +329,20 @@ end
 
 local function UpdateAdventurePresentationWait(presentation_id, ready, total)
     local presentation = active_presentation
-    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" or
-        waiting_popup == nil then
+    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_title" then
         return
     end
+
+    ShowWaitingPopup()
     waiting_popup:SetProgress(ready, total)
+end
+
+local function StartAdventureTitle(presentation_id)
+    local presentation = active_presentation
+    if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_title" then
+        return
+    end
+    StartTitle(presentation)
 end
 
 local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_skip)
@@ -409,6 +464,10 @@ end
 
 function FrontEnd:UpdateAdventurePresentationWait(presentation_id, ready, total)
     UpdateAdventurePresentationWait(presentation_id, ready, total)
+end
+
+function FrontEnd:StartAdventureTitle(presentation_id)
+    StartAdventureTitle(presentation_id)
 end
 
 function FrontEnd:OnLocalPlayerActivated(inst)

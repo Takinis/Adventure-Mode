@@ -21,6 +21,16 @@ AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(p
     end
 end)
 
+AddClientModRPCHandler("AdventureMode", "StartAdventureTitle", function(presentation_id)
+    if type(presentation_id) ~= "string" or presentation_id == "" then
+        return
+    end
+
+    if TheFrontEnd ~= nil then
+        TheFrontEnd:StartAdventureTitle(presentation_id)
+    end
+end)
+
 AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(presentation_id, guid, x, y, z, can_skip)
     if type(presentation_id) ~= "string" or presentation_id == "" or type(guid) ~= "number" or
         type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" or type(can_skip) ~= "boolean" then
@@ -464,6 +474,18 @@ AddModRPCHandler("AdventureMode", "AdventurePresentationReady", function(player,
     local maxwell_intro = TheWorld ~= nil and TheWorld.components.maxwellintrospawner or nil
     local ready = maxwell_intro ~= nil and maxwell_intro:SetPlayerReady(player, presentation_id)
     if not ready and player ~= nil and player.userid ~= nil and player.userid ~= "" then
+        SendModRPCToClient(GetClientModRPC("AdventureMode", "AbortAdventurePresentation"), player.userid, presentation_id)
+    end
+end)
+
+AddModRPCHandler("AdventureMode", "AdventureTitleFinished", function(player, presentation_id)
+    if type(presentation_id) ~= "string" or presentation_id == "" or #presentation_id > 256 then
+        return
+    end
+
+    local maxwell_intro = TheWorld ~= nil and TheWorld.components.maxwellintrospawner or nil
+    local finished = maxwell_intro ~= nil and maxwell_intro:SetTitleFinished(player, presentation_id)
+    if not finished and player ~= nil and player.userid ~= nil and player.userid ~= "" then
         SendModRPCToClient(GetClientModRPC("AdventureMode", "AbortAdventurePresentation"), player.userid, presentation_id)
     end
 end)

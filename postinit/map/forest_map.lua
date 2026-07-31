@@ -2,6 +2,10 @@ GLOBAL.setfenv(1, GLOBAL)
 
 require("map/network")
 local forest_map = require("map/forest_map")
+local TRANSLATE_TO_PREFABS = forest_map.TRANSLATE_TO_PREFABS
+
+TRANSLATE_TO_PREFABS["maxwelllight"] = {"maxwelllight"}
+TRANSLATE_TO_PREFABS["maxwelllight_area"] = {"maxwelllight_area"}
 
 local _Generate = forest_map.Generate
 
@@ -54,6 +58,7 @@ Graph.GlobalPrePopulate = function(self, entities, width, height)
 
     return unpack(rets)
 end
+
 
 -- huh?
 -- local _GlobalPostPopulate = Graph.GlobalPostPopulate

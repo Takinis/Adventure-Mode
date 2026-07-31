@@ -2,6 +2,15 @@ GLOBAL.setfenv(1, GLOBAL)
 
 require("map/storygen")
 
+local _GenerationPipeline = Story.GenerationPipeline
+function Story:GenerationPipeline(...)
+	if self.level.overrides.is_adventure then
+		self.map_tags.TagData.StagehandGarden = false
+	end
+
+	return _GenerationPipeline(self, ...)
+end
+
 local _RunTaskSubstitution = Story.RunTaskSubstitution
 function Story:RunTaskSubstitution(task, items, ...)
 	if task.substitutes ~= nil and items ~= nil then

@@ -1,10 +1,10 @@
 local AddStategraphState = AddStategraphState
 GLOBAL.setfenv(1, GLOBAL)
 
-local function MakeSleepState(server_states)
+local function MakeAdventureIntroState(server_states)
     return State{
-        name = "sleep",
-        tags = { "sleeping", "nopredict", "nomorph" },
+        name = "adventure_intro",
+        tags = { "busy", "sleeping", "nopredict", "nomorph", "noattack", "nointerrupt", "temp_invincible" },
         server_states = server_states,
 
         onenter = function(inst)
@@ -15,30 +15,35 @@ local function MakeSleepState(server_states)
             inst:ClearBufferedAction()
             inst.AnimState:PlayAnimation("sleep")
             if inst.components.playercontroller ~= nil then
+                inst.sg.statemem.controller_enabled =
+                    inst.components.playercontroller.classified ~= nil and
+                    inst.components.playercontroller.classified.iscontrollerenabled:value()
+                inst.sg.statemem.map_enabled = inst.components.playercontroller.is_map_enabled
                 inst.components.playercontroller:EnableMapControls(false)
                 inst.components.playercontroller:Enable(false)
             end
-            if inst.components.health ~= nil then
-                inst.sg.statemem.was_invincible = inst.components.health.invincible
-                inst.components.health:SetInvincible(true)
-            end
             if inst.components.inventory ~= nil then
+                inst.sg.statemem.inventory_visible = inst.components.inventory.isvisible
                 inst.components.inventory:Hide()
             end
+            inst.sg.statemem.actions_visible = inst:IsActionsVisible()
             inst:ShowActions(false)
+            if inst.components.grue ~= nil then
+                inst.components.grue:AddImmunity("adventure_intro")
+            end
         end,
 
         onexit = function(inst)
-            if inst.components.health ~= nil then
-                inst.components.health:SetInvincible(inst.sg.statemem.was_invincible == true)
+            if inst.components.grue ~= nil then
+                inst.components.grue:RemoveImmunity("adventure_intro")
             end
-            if inst.components.inventory ~= nil then
+            if inst.components.inventory ~= nil and inst.sg.statemem.inventory_visible then
                 inst.components.inventory:Show()
             end
-            inst:ShowActions(true)
+            inst:ShowActions(inst.sg.statemem.actions_visible == true)
             if inst.components.playercontroller ~= nil then
-                inst.components.playercontroller:EnableMapControls(true)
-                inst.components.playercontroller:Enable(true)
+                inst.components.playercontroller:EnableMapControls(inst.sg.statemem.map_enabled == true)
+                inst.components.playercontroller:Enable(inst.sg.statemem.controller_enabled == true)
             end
         end,
     }
@@ -46,7 +51,7 @@ end
 
 local states =
 {
-    MakeSleepState(),
+    MakeAdventureIntroState(),
 }
 
 for _, state in ipairs(states) do
@@ -55,7 +60,7 @@ end
 
 local client_states =
 {
-    MakeSleepState({ "sleep" }),
+    MakeAdventureIntroState({ "adventure_intro" }),
 }
 
 for _, state in ipairs(client_states) do

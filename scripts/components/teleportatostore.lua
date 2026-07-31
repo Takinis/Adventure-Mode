@@ -4,6 +4,11 @@ local function IsValidUserId(userid)
 	return userid ~= nil and userid ~= ""
 end
 
+local function GetCurrentSessionId()
+	local sessionid = TheWorld ~= nil and TheWorld.meta ~= nil and TheWorld.meta.session_identifier or nil
+	return type(sessionid) == "string" and sessionid ~= "" and sessionid or nil
+end
+
 local function CopySlotRecords(records)
 	if type(records) ~= "table" then
 		return nil
@@ -53,6 +58,38 @@ local function LoadSlotRecords(container, records)
 	end
 end
 
+local function ReplaceEyebones(record)
+	if record.prefab == "chester_eyebone" then
+		return { prefab = "ash" }
+	end
+
+	for key, value in pairs(record) do
+		if type(value) == "table" then
+			record[key] = ReplaceEyebones(value)
+		end
+	end
+	return record
+end
+
+local function ClearWobyInventory(record)
+	local wobydata = record.data.woby ~= nil and record.data.woby.data or nil
+	if wobydata == nil then
+		return
+	end
+
+	if wobydata.container ~= nil then
+		wobydata.container.items = {}
+	end
+
+	if wobydata.wobyrack ~= nil then
+		wobydata.wobyrack.info = nil
+		local contents = wobydata.wobyrack.contents
+		if contents ~= nil and contents.container ~= nil then
+			contents.container.items = {}
+		end
+	end
+end
+
 local function FilterInventory(record, slotrecords)
 	if type(record) ~= "table" or type(record.data) ~= "table" then
 		return record
@@ -69,9 +106,10 @@ local function FilterInventory(record, slotrecords)
 	for index, slot in ipairs(SLOT_ORDER) do
 		local itemrecord = slotrecords ~= nil and slotrecords[slot] or nil
 		if type(itemrecord) == "table" then
-			out.data.inventory.items[index] = deepcopy(itemrecord)
+			out.data.inventory.items[index] = ReplaceEyebones(deepcopy(itemrecord))
 		end
 	end
+	ClearWobyInventory(out)
 	return out
 end
 
@@ -224,10 +262,6 @@ function TeleportatoStore:FilterSession(session)
 	end
 
 	local store = self:GetSlotRecords(session.userid)
-	if store == nil then
-		return session
-	end
-
 	local success, record = RunInSandboxSafe(session.data or "")
 	if not success or type(record) ~= "table" then
 		return session
@@ -241,6 +275,7 @@ end
 function TeleportatoStore:BuildPlayerSessions()
 	local sessions = {}
 	local seen = {}
+	local origin_session_id = GetCurrentSessionId()
 
 	for _, player in ipairs(AllPlayers or {}) do
 		if IsValidUserId(player.userid) and player.prefab ~= nil then
@@ -251,6 +286,7 @@ function TeleportatoStore:BuildPlayerSessions()
 				data = DataDumper(record, nil, BRANCH ~= "dev"),
 				metadata = DataDumper({ character = player.prefab }, nil, BRANCH ~= "dev"),
 				mode = "full",
+				origin_session_id = origin_session_id,
 			}
 			seen[player.userid] = true
 		end

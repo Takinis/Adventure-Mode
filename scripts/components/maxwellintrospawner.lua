@@ -9,7 +9,7 @@ local MAXWELL_SPEECH_BY_CHAPTER =
 }
 
 local WAIT_TIMEOUT = 45
-local READY_SETTLE_TIME = .5
+local TITLE_TIMEOUT = 15
 local MAXWELL_OFFSET = 4
 
 local function IsPlayerValid(player)
@@ -44,24 +44,12 @@ local function GetCurrentAdventureSpeechName()
 end
 
 local function LockPlayer(player)
-    if not IsPlayerValid(player) then
+    if not IsPlayerValid(player) or player.sg == nil then
         return false
     end
 
-    if player.components.locomotor ~= nil then
-        player.components.locomotor:Stop()
-        player.components.locomotor:StopMoving()
-    end
-    player:ClearBufferedAction()
-
-    if player.components.playercontroller ~= nil then
-        player.components.playercontroller:EnableMapControls(false)
-        player.components.playercontroller:Enable(false)
-    end
-    if player.sg ~= nil then
-        player.sg:GoToState("sleep")
-    end
-    return true
+    player.sg:GoToState("adventure_intro")
+    return player.sg.currentstate ~= nil and player.sg.currentstate.name == "adventure_intro"
 end
 
 local function UnlockPlayer(player)
@@ -69,22 +57,14 @@ local function UnlockPlayer(player)
         return
     end
 
-    if player.sg ~= nil and player.sg.currentstate ~= nil and player.sg.currentstate.name == "sleep" then
+    if player.sg ~= nil and player.sg.currentstate ~= nil and player.sg.currentstate.name == "adventure_intro" then
         player.sg:GoToState("wakeup")
-    elseif player.components.playercontroller ~= nil then
-        player.components.playercontroller:EnableMapControls(true)
-        player.components.playercontroller:Enable(true)
     end
 end
 
 local function OnWaitTimeout(inst, self)
     self.timeout_task = nil
     self:OnWaitTimeout()
-end
-
-local function OnReadySettled(inst, self)
-    self.settle_task = nil
-    self:StartSharedIntro()
 end
 
 local function OnClientAuthenticated(inst, data)
@@ -116,6 +96,7 @@ local MaxwellIntroSpawner = Class(function(self, inst)
     self.presentation_id = nil
     self.expected = {}
     self.ready = {}
+    self.title_finished = {}
     self.players = {}
     self.locked_players = {}
     self.participants = {}
@@ -123,7 +104,7 @@ local MaxwellIntroSpawner = Class(function(self, inst)
     self.can_skip_intro = false
     self.maxwell = nil
     self.timeout_task = nil
-    self.settle_task = nil
+    self.barrier_pause_requested = false
     self.owns_server_pause = false
 
     inst:ListenForEvent("ms_clientauthenticationcomplete", OnClientAuthenticated)
@@ -174,19 +155,43 @@ function MaxwellIntroSpawner:AddConnectedPlayers()
 end
 
 function MaxwellIntroSpawner:SetBarrierPaused(paused)
-    if paused then
+    if self.barrier_pause_requested ~= paused or (not paused and self.owns_server_pause) then
+        self.barrier_pause_requested = paused
+        self.inst:StartWallUpdatingComponent(self)
+    end
+end
+
+function MaxwellIntroSpawner:OnWallUpdate()
+    self.inst:StopWallUpdatingComponent(self)
+
+    local should_pause = self.barrier_pause_requested and
+        (self.phase == "collecting" or self.phase == "title") and CountEntries(self.expected) > 1
+    if self.barrier_pause_requested and not should_pause then
+        self.barrier_pause_requested = false
+    end
+
+    if should_pause then
         if not self.owns_server_pause and not TheNet:IsServerPaused(true) then
-            TheNet:SetServerPaused(true)
             self.owns_server_pause = true
+            SetServerPaused(true)
         end
     elseif self.owns_server_pause then
         self.owns_server_pause = false
-        TheNet:SetServerPaused(false)
+        SetServerPaused(false)
     end
 end
 
 function MaxwellIntroSpawner:UpdateBarrierPause()
-    self:SetBarrierPaused(self.phase == "collecting" and CountEntries(self.expected) > 1)
+    self:SetBarrierPaused(
+        (self.phase == "collecting" or self.phase == "title") and CountEntries(self.expected) > 1
+    )
+end
+
+function MaxwellIntroSpawner:RestartTimeout(timeout)
+    if self.timeout_task ~= nil then
+        self.timeout_task:Cancel()
+    end
+    self.timeout_task = self.inst:DoStaticTaskInTime(timeout, OnWaitTimeout, self)
 end
 
 function MaxwellIntroSpawner:BeginCollection(presentation_id)
@@ -194,6 +199,7 @@ function MaxwellIntroSpawner:BeginCollection(presentation_id)
     self.presentation_id = presentation_id
     self.expected = {}
     self.ready = {}
+    self.title_finished = {}
     self.players = {}
     self.locked_players = {}
     self.participants = {}
@@ -201,7 +207,7 @@ function MaxwellIntroSpawner:BeginCollection(presentation_id)
     self.can_skip_intro = false
     self:AddConnectedPlayers()
     self:UpdateBarrierPause()
-    self.timeout_task = self.inst:DoStaticTaskInTime(WAIT_TIMEOUT, OnWaitTimeout, self)
+    self:RestartTimeout(WAIT_TIMEOUT)
 end
 
 function MaxwellIntroSpawner:PreparePlayer(player, presentation_id)
@@ -243,13 +249,6 @@ function MaxwellIntroSpawner:SendWaitStatus()
     end
 end
 
-function MaxwellIntroSpawner:CancelSettleTask()
-    if self.settle_task ~= nil then
-        self.settle_task:Cancel()
-        self.settle_task = nil
-    end
-end
-
 function MaxwellIntroSpawner:CheckAllReady()
     if self.phase ~= "collecting" then
         return
@@ -257,15 +256,17 @@ function MaxwellIntroSpawner:CheckAllReady()
 
     local expected_count = CountEntries(self.expected)
     if expected_count > 0 and CountEntries(self.ready) >= expected_count then
-        if self.settle_task == nil then
-            self.settle_task = self.inst:DoStaticTaskInTime(READY_SETTLE_TIME, OnReadySettled, self)
-        end
-    else
-        self:CancelSettleTask()
+        self:StartSharedTitle()
     end
 end
 
 function MaxwellIntroSpawner:SetPlayerReady(player, presentation_id)
+    if self.presentation_id == presentation_id and IsPlayerValid(player) and
+        self.participants[player.userid] == player and
+        (self.phase == "title" or self.phase == "playing") then
+        return true
+    end
+
     if self.phase ~= "collecting" or self.presentation_id ~= presentation_id or not IsPlayerValid(player) or
         self.players[player.userid] ~= player then
         return false
@@ -285,7 +286,6 @@ function MaxwellIntroSpawner:OnClientAuthenticated(userid)
 
     if not self.expected[userid] then
         self.expected[userid] = true
-        self:CancelSettleTask()
         self:UpdateBarrierPause()
         self:SendWaitStatus()
     end
@@ -303,7 +303,6 @@ function MaxwellIntroSpawner:ClearTasks()
         self.timeout_task:Cancel()
         self.timeout_task = nil
     end
-    self:CancelSettleTask()
 end
 
 function MaxwellIntroSpawner:ClearPresentation(phase)
@@ -313,14 +312,15 @@ function MaxwellIntroSpawner:ClearPresentation(phase)
     self.phase = phase or "finished"
     self.expected = {}
     self.ready = {}
+    self.title_finished = {}
     self.players = {}
     self.participants = {}
     self.skip_votes = {}
     self.can_skip_intro = false
 end
 
-function MaxwellIntroSpawner:AbortCollection()
-    if self.phase ~= "collecting" then
+function MaxwellIntroSpawner:AbortPresentation()
+    if self.phase ~= "collecting" and self.phase ~= "title" then
         return
     end
 
@@ -336,7 +336,10 @@ function MaxwellIntroSpawner:AbortCollection()
 end
 
 function MaxwellIntroSpawner:OnWaitTimeout()
-    if self.phase ~= "collecting" then
+    if self.phase == "title" then
+        self:AbortPresentation()
+        return
+    elseif self.phase ~= "collecting" then
         return
     end
 
@@ -348,18 +351,79 @@ function MaxwellIntroSpawner:OnWaitTimeout()
     end
 
     if next(self.ready) == nil then
-        self:AbortCollection()
+        self:AbortPresentation()
     else
         self:SendWaitStatus()
+        self:StartSharedTitle()
+    end
+end
+
+function MaxwellIntroSpawner:StartSharedTitle()
+    if self.phase ~= "collecting" then
+        return false
+    end
+
+    local expected = {}
+    local ready = {}
+    local participants = {}
+    local userids = {}
+    for userid in pairs(self.ready) do
+        local player = self.players[userid]
+        if IsPlayerValid(player) then
+            player:DisableLoadingProtection()
+            expected[userid] = true
+            ready[userid] = true
+            participants[userid] = player
+            table.insert(userids, userid)
+        end
+    end
+    if #userids <= 0 then
+        self:AbortPresentation()
+        return false
+    end
+
+    self.phase = "title"
+    self.expected = expected
+    self.ready = ready
+    self.participants = participants
+    self.title_finished = {}
+    self:UpdateBarrierPause()
+    self:RestartTimeout(TITLE_TIMEOUT)
+    SendModRPCToClient(
+        GetClientModRPC("AdventureMode", "StartAdventureTitle"),
+        userids,
+        self.presentation_id
+    )
+    return true
+end
+
+function MaxwellIntroSpawner:CheckAllTitlesFinished()
+    if self.phase == "title" and next(self.participants) ~= nil and
+        CountEntries(self.title_finished) >= CountEntries(self.participants) then
         self:StartSharedIntro()
     end
+end
+
+function MaxwellIntroSpawner:SetTitleFinished(player, presentation_id)
+    if self.phase == "playing" and self.presentation_id == presentation_id and IsPlayerValid(player) and
+        self.participants[player.userid] == player then
+        return true
+    end
+
+    if self.phase ~= "title" or self.presentation_id ~= presentation_id or not IsPlayerValid(player) or
+        self.participants[player.userid] ~= player then
+        return false
+    end
+
+    self.title_finished[player.userid] = true
+    self:CheckAllTitlesFinished()
+    return true
 end
 
 function MaxwellIntroSpawner:GetSharedMaxwellPosition()
     local x, y, z = 0, 0, 0
     local count = 0
-    for userid in pairs(self.ready) do
-        local player = self.players[userid]
+    for userid, player in pairs(self.participants) do
         if IsPlayerValid(player) then
             local px, py, pz = player.Transform:GetWorldPosition()
             x, y, z = x + px, y + py, z + pz
@@ -376,28 +440,28 @@ function MaxwellIntroSpawner:GetSharedMaxwellPosition()
 end
 
 function MaxwellIntroSpawner:StartSharedIntro()
-    if self.phase ~= "collecting" then
+    if self.phase ~= "title" then
         return false
     end
 
     self:ClearTasks()
     self:SetBarrierPaused(false)
-    self.participants = {}
+    local participants = {}
     local has_non_maxwell = false
-    for userid in pairs(self.ready) do
-        local player = self.players[userid]
+    for userid, player in pairs(self.participants) do
         if IsPlayerValid(player) then
-            self.participants[userid] = player
+            participants[userid] = player
             has_non_maxwell = has_non_maxwell or player.prefab ~= "waxwell"
         end
     end
+    self.participants = participants
 
     if next(self.participants) == nil then
-        self:AbortCollection()
+        self:AbortPresentation()
         return false
     elseif not has_non_maxwell then
         ShardGameIndex.adventure:MarkCurrentMaxwellIntroPlayed()
-        self:AbortCollection()
+        self:AbortPresentation()
         return false
     end
 
@@ -406,7 +470,7 @@ function MaxwellIntroSpawner:StartSharedIntro()
     local speech_name = GetCurrentAdventureSpeechName()
     local x, y, z, center_x, center_y, center_z = self:GetSharedMaxwellPosition()
     if speech_name == nil or x == nil then
-        self:AbortCollection()
+        self:AbortPresentation()
         return false
     end
 
@@ -415,7 +479,7 @@ function MaxwellIntroSpawner:StartSharedIntro()
         if maxwell ~= nil then
             maxwell:Remove()
         end
-        self:AbortCollection()
+        self:AbortPresentation()
         return false
     end
 
@@ -429,11 +493,11 @@ function MaxwellIntroSpawner:StartSharedIntro()
             self:OnMaxwellFinished(maxwell, completed)
         end) then
         self.maxwell = nil
-        self.phase = "collecting"
+        self.phase = "title"
         if maxwell:IsValid() then
             maxwell:Remove()
         end
-        self:AbortCollection()
+        self:AbortPresentation()
         return false
     end
 
@@ -519,6 +583,7 @@ function MaxwellIntroSpawner:RemoveParticipant(userid)
     end
     self.expected[userid] = nil
     self.ready[userid] = nil
+    self.title_finished[userid] = nil
     self.players[userid] = nil
     self.participants[userid] = nil
     self.skip_votes[userid] = nil
@@ -527,9 +592,16 @@ function MaxwellIntroSpawner:RemoveParticipant(userid)
         self:UpdateBarrierPause()
         self:SendWaitStatus()
         if next(self.expected) == nil then
-            self:AbortCollection()
+            self:AbortPresentation()
         else
             self:CheckAllReady()
+        end
+    elseif self.phase == "title" then
+        self:UpdateBarrierPause()
+        if next(self.participants) == nil then
+            self:AbortPresentation()
+        else
+            self:CheckAllTitlesFinished()
         end
     elseif self.phase == "playing" then
         if next(self.participants) == nil then
@@ -554,6 +626,12 @@ function MaxwellIntroSpawner:OnRemoveFromEntity()
     local maxwell = self.maxwell
     self.maxwell = nil
     self:ClearPresentation("finished")
+    self.barrier_pause_requested = false
+    self.inst:StopWallUpdatingComponent(self)
+    if self.owns_server_pause then
+        self.owns_server_pause = false
+        SetServerPaused(false)
+    end
     if maxwell ~= nil and maxwell:IsValid() then
         maxwell.components.maxwelltalker:SetOnFinishedFn(nil)
         maxwell:Remove()
@@ -562,11 +640,13 @@ end
 
 function MaxwellIntroSpawner:GetDebugString()
     return string.format(
-        "phase=%s expected=%d ready=%d participants=%d paused=%s can_skip=%s",
+        "phase=%s expected=%d ready=%d title_finished=%d participants=%d pause_requested=%s paused=%s can_skip=%s",
         self.phase,
         CountEntries(self.expected),
         CountEntries(self.ready),
+        CountEntries(self.title_finished),
         CountEntries(self.participants),
+        tostring(self.barrier_pause_requested),
         tostring(self.owns_server_pause),
         tostring(self.can_skip_intro)
     )
