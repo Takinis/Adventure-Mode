@@ -136,7 +136,13 @@ function TeleportatoTravel:SetPlayerActivation(doer, active)
 	local wasconfirmed = self.confirmedplayers[doer.userid] == true
 	self.confirmedplayers[doer.userid] = true
 	if not wasconfirmed then
-		TheNet:Announce(string.format(STRINGS.UI.HUD.TELEPORTATO_PLAYER_CONFIRMED, doer:GetDisplayName()))
+		local confirmedcount, playercount = self:GetActivationProgress()
+		TheNet:Announce(string.format(
+			STRINGS.UI.HUD.TELEPORTATO_PLAYER_CONFIRMED,
+			doer:GetDisplayName(),
+			confirmedcount,
+			playercount
+		))
 	end
 	return self:Transition(doer)
 end
@@ -160,8 +166,7 @@ function TeleportatoTravel:RequestConfirmation(doer)
 end
 
 function TeleportatoTravel:UpdateActivationAvailability()
-	if self.inst.components.activatable ~= nil and not self.activating and
-		not self.inst.components.teleportatostore:HasOpenContainer() then
+	if self.inst.components.activatable ~= nil and not self.activating then
 		self.inst.components.activatable.inactive = true
 	end
 end

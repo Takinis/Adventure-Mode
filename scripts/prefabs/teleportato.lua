@@ -20,7 +20,11 @@ local function ApplyPoweredPresentation(inst)
 end
 
 local function OnActivate(inst, doer)
-	return inst.components.teleportatoassembly:Activate(doer)
+	local activated = inst.components.teleportatoassembly:Activate(doer)
+	if activated then
+		inst.components.teleportatotravel:UpdateActivationAvailability()
+	end
+	return activated
 end
 
 local function OnActivated(inst, doer)
