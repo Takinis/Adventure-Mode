@@ -15,7 +15,8 @@ AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(p
     if TheFrontEnd ~= nil then
         local level = type(preset) == "string" and Levels.GetNameForLevelID(preset) or nil
         level = level or tostring(preset or "Adventure")
-        local chapter_text = string.format(STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER, chapter, total)
+        local chapter_text = preset == "ENDING" and STRINGS.UI.SANDBOXMENU.CHAPTERS[6] or
+            string.format(STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER, chapter, total)
         TheFrontEnd:QueueAdventurePresentation(presentation_id, level, chapter_text, play_maxwell_intro == true)
     end
 end)
