@@ -132,10 +132,10 @@ local function WaitForMaxwellIntro(presentation)
 
     presentation.phase = "waiting_for_intro"
     RunActivationCallback(presentation)
-    _Fade(TheFrontEnd, FADE_OUT, 0, nil, nil, nil, TITLE_FADE_TYPE)
     CloseWaitingPopup()
     waiting_popup = AdventureWaitingPopup()
     TheFrontEnd:PushScreen(waiting_popup)
+    _Fade(TheFrontEnd, FADE_IN, 0, nil, nil, nil, TITLE_FADE_TYPE)
     SendModRPCToServer(GetModRPC("AdventureMode", "AdventurePresentationReady"), presentation.id)
 
     presentation.intro_timeout_task = ScheduleTask(MAXWELL_INTRO_START_TIMEOUT, function()
@@ -290,7 +290,7 @@ local function UpdateAdventurePresentationWait(presentation_id, ready, total)
     waiting_popup:SetProgress(ready, total)
 end
 
-local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
+local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_skip)
     local presentation = active_presentation
     local player = ThePlayer
     if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" or
@@ -324,7 +324,7 @@ local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
         TheCamera:Snap()
     end
 
-    if TheInput ~= nil then
+    if can_skip and TheInput ~= nil then
         for _, control in ipairs(MAXWELL_INTRO_INPUTS) do
             table.insert(maxwell_intro.inputhandlers, TheInput:AddControlHandler(control, SendSkipMaxwellIntro))
         end
@@ -419,8 +419,8 @@ function FrontEnd:OnLocalPlayerDeactivated(inst)
     OnLocalPlayerDeactivated(inst)
 end
 
-function FrontEnd:StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
-    StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
+function FrontEnd:StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_skip)
+    StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_skip)
 end
 
 function FrontEnd:StopMaxwellIntroCutscene(presentation_id, guid)

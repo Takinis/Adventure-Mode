@@ -120,9 +120,11 @@ local MaxwellIntroSpawner = Class(function(self, inst)
     self.locked_players = {}
     self.participants = {}
     self.skip_votes = {}
+    self.can_skip_intro = false
     self.maxwell = nil
     self.timeout_task = nil
     self.settle_task = nil
+    self.owns_server_pause = false
 
     inst:ListenForEvent("ms_clientauthenticationcomplete", OnClientAuthenticated)
     inst:ListenForEvent("ms_clientdisconnected", OnClientDisconnected)
@@ -140,6 +142,27 @@ function MaxwellIntroSpawner:ShouldPlayCurrentChapter()
 end
 
 function MaxwellIntroSpawner:AddConnectedPlayers()
+    local run = GetCurrentAdventureRun()
+    if run ~= nil then
+        for userid, participating in pairs(run.participants or {}) do
+            if participating and type(userid) == "string" and userid ~= "" then
+                self.expected[userid] = true
+            end
+        end
+
+        for _, session in ipairs(run.player_sessions or {}) do
+            if type(session.userid) == "string" and session.userid ~= "" then
+                self.expected[session.userid] = true
+            end
+        end
+
+        for _, session in ipairs(run.adventure_player_sessions or {}) do
+            if type(session.userid) == "string" and session.userid ~= "" then
+                self.expected[session.userid] = true
+            end
+        end
+    end
+
     local clients = TheNet:GetClientTable() or {}
     local client_hosted = TheNet:GetServerIsClientHosted()
     for _, client in ipairs(clients) do
@@ -148,6 +171,22 @@ function MaxwellIntroSpawner:AddConnectedPlayers()
             self.expected[client.userid] = true
         end
     end
+end
+
+function MaxwellIntroSpawner:SetBarrierPaused(paused)
+    if paused then
+        if not self.owns_server_pause and not TheNet:IsServerPaused(true) then
+            TheNet:SetServerPaused(true)
+            self.owns_server_pause = true
+        end
+    elseif self.owns_server_pause then
+        self.owns_server_pause = false
+        TheNet:SetServerPaused(false)
+    end
+end
+
+function MaxwellIntroSpawner:UpdateBarrierPause()
+    self:SetBarrierPaused(self.phase == "collecting" and CountEntries(self.expected) > 1)
 end
 
 function MaxwellIntroSpawner:BeginCollection(presentation_id)
@@ -159,8 +198,10 @@ function MaxwellIntroSpawner:BeginCollection(presentation_id)
     self.locked_players = {}
     self.participants = {}
     self.skip_votes = {}
+    self.can_skip_intro = false
     self:AddConnectedPlayers()
-    self.timeout_task = self.inst:DoTaskInTime(WAIT_TIMEOUT, OnWaitTimeout, self)
+    self:UpdateBarrierPause()
+    self.timeout_task = self.inst:DoStaticTaskInTime(WAIT_TIMEOUT, OnWaitTimeout, self)
 end
 
 function MaxwellIntroSpawner:PreparePlayer(player, presentation_id)
@@ -177,6 +218,7 @@ function MaxwellIntroSpawner:PreparePlayer(player, presentation_id)
 
     self.expected[player.userid] = true
     self.players[player.userid] = player
+    self:UpdateBarrierPause()
     return true
 end
 
@@ -216,7 +258,7 @@ function MaxwellIntroSpawner:CheckAllReady()
     local expected_count = CountEntries(self.expected)
     if expected_count > 0 and CountEntries(self.ready) >= expected_count then
         if self.settle_task == nil then
-            self.settle_task = self.inst:DoTaskInTime(READY_SETTLE_TIME, OnReadySettled, self)
+            self.settle_task = self.inst:DoStaticTaskInTime(READY_SETTLE_TIME, OnReadySettled, self)
         end
     else
         self:CancelSettleTask()
@@ -244,6 +286,7 @@ function MaxwellIntroSpawner:OnClientAuthenticated(userid)
     if not self.expected[userid] then
         self.expected[userid] = true
         self:CancelSettleTask()
+        self:UpdateBarrierPause()
         self:SendWaitStatus()
     end
 end
@@ -265,6 +308,7 @@ end
 
 function MaxwellIntroSpawner:ClearPresentation(phase)
     self:ClearTasks()
+    self:SetBarrierPaused(false)
     self:UnlockAllPlayers()
     self.phase = phase or "finished"
     self.expected = {}
@@ -272,6 +316,7 @@ function MaxwellIntroSpawner:ClearPresentation(phase)
     self.players = {}
     self.participants = {}
     self.skip_votes = {}
+    self.can_skip_intro = false
 end
 
 function MaxwellIntroSpawner:AbortCollection()
@@ -336,6 +381,7 @@ function MaxwellIntroSpawner:StartSharedIntro()
     end
 
     self:ClearTasks()
+    self:SetBarrierPaused(false)
     self.participants = {}
     local has_non_maxwell = false
     for userid in pairs(self.ready) do
@@ -354,6 +400,8 @@ function MaxwellIntroSpawner:StartSharedIntro()
         self:AbortCollection()
         return false
     end
+
+    self.can_skip_intro = CountEntries(self.participants) == 1
 
     local speech_name = GetCurrentAdventureSpeechName()
     local x, y, z, center_x, center_y, center_z = self:GetSharedMaxwellPosition()
@@ -406,7 +454,8 @@ function MaxwellIntroSpawner:StartSharedIntro()
         maxwell.GUID,
         x,
         y,
-        z
+        z,
+        self.can_skip_intro
     )
     return true
 end
@@ -434,7 +483,7 @@ function MaxwellIntroSpawner:OnMaxwellFinished(maxwell)
 end
 
 function MaxwellIntroSpawner:CheckSkipVotes()
-    if self.phase ~= "playing" or self.maxwell == nil then
+    if self.phase ~= "playing" or self.maxwell == nil or not self.can_skip_intro then
         return
     end
 
@@ -448,7 +497,7 @@ end
 
 function MaxwellIntroSpawner:RequestSkip(player, presentation_id, guid)
     if self.phase ~= "playing" or self.presentation_id ~= presentation_id or
-        self.maxwell == nil or self.maxwell.GUID ~= guid or not IsPlayerValid(player) or
+        not self.can_skip_intro or self.maxwell == nil or self.maxwell.GUID ~= guid or not IsPlayerValid(player) or
         self.participants[player.userid] ~= player then
         return false
     end
@@ -475,6 +524,7 @@ function MaxwellIntroSpawner:RemoveParticipant(userid)
     self.skip_votes[userid] = nil
 
     if self.phase == "collecting" then
+        self:UpdateBarrierPause()
         self:SendWaitStatus()
         if next(self.expected) == nil then
             self:AbortCollection()
@@ -512,11 +562,13 @@ end
 
 function MaxwellIntroSpawner:GetDebugString()
     return string.format(
-        "phase=%s expected=%d ready=%d participants=%d",
+        "phase=%s expected=%d ready=%d participants=%d paused=%s can_skip=%s",
         self.phase,
         CountEntries(self.expected),
         CountEntries(self.ready),
-        CountEntries(self.participants)
+        CountEntries(self.participants),
+        tostring(self.owns_server_pause),
+        tostring(self.can_skip_intro)
     )
 end
 

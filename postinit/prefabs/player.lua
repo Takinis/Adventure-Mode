@@ -36,7 +36,7 @@ local function ShowAdventureTitle(inst, retries)
     if inst == nil or inst.userid == nil or inst.userid == "" then
         retries = (retries or 0) + 1
         if inst ~= nil and retries <= TITLE_SEND_RETRY_LIMIT then
-            inst:DoTaskInTime(TITLE_RETRY_TIME, ShowAdventureTitle, retries)
+            inst:DoStaticTaskInTime(TITLE_RETRY_TIME, ShowAdventureTitle, retries)
         end
         return
     end
@@ -46,7 +46,7 @@ local function ShowAdventureTitle(inst, retries)
     if preset == nil or chapter == nil or total == nil then
         retries = (retries or 0) + 1
         if retries <= TITLE_SEND_RETRY_LIMIT then
-            inst:DoTaskInTime(TITLE_RETRY_TIME, ShowAdventureTitle, retries)
+            inst:DoStaticTaskInTime(TITLE_RETRY_TIME, ShowAdventureTitle, retries)
         end
         return
     end
@@ -106,7 +106,7 @@ AddPlayerPostInit(function(inst)
         inst:ListenForEvent("playeractivated", OnAdventurePlayerActivated)
         inst:ListenForEvent("playerdeactivated", OnAdventurePlayerDeactivated)
         inst:ListenForEvent("playeractivated", ShowAdventureTitle)
-        inst:DoTaskInTime(0, ShowAdventureTitle)
+        inst:DoStaticTaskInTime(0, ShowAdventureTitle)
         inst:DoTaskInTime(0, OnAdventurePlayerActivated)
     end
 

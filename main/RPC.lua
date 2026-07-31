@@ -20,14 +20,14 @@ AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(p
     end
 end)
 
-AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(presentation_id, guid, x, y, z)
+AddClientModRPCHandler("AdventureMode", "StartMaxwellIntro", function(presentation_id, guid, x, y, z, can_skip)
     if type(presentation_id) ~= "string" or presentation_id == "" or type(guid) ~= "number" or
-        type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" or type(can_skip) ~= "boolean" then
         return
     end
 
     if TheFrontEnd ~= nil then
-        TheFrontEnd:StartMaxwellIntroCutscene(presentation_id, guid, x, y, z)
+        TheFrontEnd:StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_skip)
     end
 end)
 
