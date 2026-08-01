@@ -105,6 +105,16 @@ local function is_master_shard_id(shardid)
     return shardid == nil or shardid == "" or shardid == SHARDID.MASTER or shardid == "Master"
 end
 
+local function get_runtime_shard_id(index)
+    local shardid = TheShard ~= nil and TheShard.GetShardId ~= nil and TheShard:GetShardId() or nil
+    if shardid ~= nil and shardid ~= "" then
+        return shardid
+    end
+
+    shardid = get_index_shard(index)
+    return is_master_shard_id(shardid) and SHARDID.MASTER or shardid
+end
+
 local function read_worldgenoverride_raw(index, cb)
     cb = cb or noop
 
@@ -175,6 +185,11 @@ local function get_player_session_metadata(player)
     return DataDumper({ character = player.prefab }, nil, BRANCH ~= "dev")
 end
 
+local function get_current_session_id()
+    local session_id = TheWorld ~= nil and TheWorld.meta ~= nil and TheWorld.meta.session_identifier or nil
+    return type(session_id) == "string" and session_id ~= "" and session_id or nil
+end
+
 local function get_character_only_record(playerinfo)
     local skinner = type(playerinfo.data) == "table" and playerinfo.data.skinner or nil
     return
@@ -218,6 +233,7 @@ local function get_character_only_sessions(sessions)
                     data = DataDumper(get_character_only_record(playerinfo), nil, BRANCH ~= "dev"),
                     metadata = session.metadata,
                     mode = "character_only",
+                    origin_session_id = session.origin_session_id,
                 })
             end
         end
@@ -244,6 +260,7 @@ local function collect_player_sessions()
                 data = DataDumper(playerinfo, nil, BRANCH ~= "dev"),
                 metadata = get_player_session_metadata(player),
                 mode = "full",
+                origin_session_id = get_current_session_id(),
             })
         end
     end
@@ -312,6 +329,7 @@ local function get_player_save_session(player)
         data = DataDumper(player:GetSaveRecord(), nil, BRANCH ~= "dev"),
         metadata = get_player_session_metadata(player),
         mode = "full",
+        origin_session_id = get_current_session_id(),
     }
 end
 
@@ -396,6 +414,23 @@ local function get_spawn_position_from_savedata_str(savedata)
     return { x = 0, y = 0, z = 0 }
 end
 
+local function get_prefab_position_from_savedata_str(savedata, prefab)
+    if type(savedata) ~= "string" or #savedata <= 0 or type(prefab) ~= "string" or prefab == "" then
+        return nil
+    end
+
+    local success, world = RunInSandboxSafe(savedata)
+    local ents = success and world ~= nil and world.ents ~= nil and world.ents[prefab] or nil
+    if ents ~= nil and ents[1] ~= nil then
+        return
+        {
+            x = ents[1].x or 0,
+            y = ents[1].y or 0,
+            z = ents[1].z or 0,
+        }
+    end
+end
+
 local function get_savedata_table(savedata)
     if type(savedata) == "table" then
         return savedata
@@ -447,12 +482,12 @@ local function world_session_exists(index, session_id, cb)
     end)
 end
 
-local function move_player_record_to_spawn(data, spawn, index)
+local function move_player_record_to_spawn(data, spawn, spawn_index, origin_session_id, destination_session_id, shard_index)
     if type(data) ~= "table" then
         return nil
     end
 
-    local offset = (index or 1) - 1
+    local offset = (spawn_index or 1) - 1
     local radius = offset > 0 and math.min(2 + offset, 8) or 0
     local angle = offset * 2.399963229728653
 
@@ -466,19 +501,38 @@ local function move_player_record_to_spawn(data, spawn, index)
     data.rz = spawn.rz
 
     if type(data.data) == "table" then
-        data.data.migration = nil
+        local migration = type(data.data.migration) == "table" and data.data.migration or nil
+        origin_session_id = origin_session_id or (migration ~= nil and migration.sessionid or nil)
+        if type(origin_session_id) == "string" and origin_session_id ~= "" and
+            origin_session_id ~= destination_session_id then
+            -- The origin session lets the engine remap persisted item skin IDs.
+            data.data.migration =
+            {
+                worldid = get_runtime_shard_id(shard_index),
+                sessionid = origin_session_id,
+            }
+        else
+            data.data.migration = nil
+        end
     end
 
     return data
 end
 
-local function build_migrated_user_session_data(session, spawn, index)
+local function build_migrated_user_session_data(session, spawn, spawn_index, destination_session_id, shard_index)
     local success, data = RunInSandboxSafe(session.data or "")
     if not success or type(data) ~= "table" or data.prefab == nil then
         return session.data
     end
 
-    move_player_record_to_spawn(data, spawn, index)
+    move_player_record_to_spawn(
+        data,
+        spawn,
+        spawn_index,
+        session.origin_session_id,
+        destination_session_id,
+        shard_index
+    )
     return DataDumper(data, nil, BRANCH ~= "dev")
 end
 
@@ -495,7 +549,7 @@ local function inject_player_sessions_into_world(index, sessions, session_identi
     TheNet:BeginSession(session_identifier)
     for i, session in ipairs(sessions) do
         if session.userid ~= nil and session.data ~= nil then
-            local data = build_migrated_user_session_data(session, spawn, i)
+            local data = build_migrated_user_session_data(session, spawn, i, session_identifier, index)
             TheNet:SerializeUserSession(session.userid, data, false, get_player_classified_entity(session.userid), session.metadata or "")
         end
     end
@@ -503,7 +557,7 @@ local function inject_player_sessions_into_world(index, sessions, session_identi
     cb()
 end
 
-local function inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override, player_positions)
+local function inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override, player_positions, spawn_prefab)
     cb = cb or noop
 
     if session_id == nil or session_id == "" or sessions == nil or #sessions <= 0 or not TheNet:GetIsServer() then
@@ -512,11 +566,18 @@ local function inject_player_sessions_into_existing_world(index, session_id, ses
     end
 
     read_world_session_raw(index, session_id, function(savedata)
-        local spawn = normalize_position(spawn_override) or get_spawn_position_from_savedata_str(savedata)
+        local spawn = get_prefab_position_from_savedata_str(savedata, spawn_prefab) or
+            normalize_position(spawn_override) or get_spawn_position_from_savedata_str(savedata)
         TheNet:BeginSession(session_id)
         for i, session in ipairs(sessions) do
             local saved_position = player_positions ~= nil and normalize_position(player_positions[session.userid]) or nil
-            local data = build_migrated_user_session_data(session, saved_position or spawn, saved_position ~= nil and 1 or i)
+            local data = build_migrated_user_session_data(
+                session,
+                saved_position or spawn,
+                saved_position ~= nil and 1 or i,
+                session_id,
+                index
+            )
             TheNet:SerializeUserSession(session.userid, data, false, get_player_classified_entity(session.userid), session.metadata or "")
         end
         cb()
@@ -2183,6 +2244,12 @@ local function finish_generated_world_index(index, state, session_identifier, sa
         state.world_type = actual_world_type
     end
 
+    if type(state.generation_source_session_id) == "string" and state.generation_source_session_id ~= "" then
+        for _, session in ipairs(state.player_sessions or {}) do
+            session.origin_session_id = session.origin_session_id or state.generation_source_session_id
+        end
+    end
+
     state.current_session_id = session_identifier
     state.updated_at = os.time()
     state.current_world = deepcopy_safe(index.world)
@@ -2749,9 +2816,9 @@ function ShardWorldIndex:InjectPlayerSessionsIntoWorld(index, sessions, session_
     inject_player_sessions_into_world(index, sessions, session_identifier, savedata, cb)
 end
 
-function ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, session_id, sessions, cb, spawn_override, player_positions)
-    index, session_id, sessions, cb, spawn_override, player_positions = resolve_index_args(self, index, session_id, sessions, cb, spawn_override, player_positions)
-    inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override, player_positions)
+function ShardWorldIndex:InjectPlayerSessionsIntoExistingWorld(index, session_id, sessions, cb, spawn_override, player_positions, spawn_prefab)
+    index, session_id, sessions, cb, spawn_override, player_positions, spawn_prefab = resolve_index_args(self, index, session_id, sessions, cb, spawn_override, player_positions, spawn_prefab)
+    inject_player_sessions_into_existing_world(index, session_id, sessions, cb, spawn_override, player_positions, spawn_prefab)
 end
 
 function ShardWorldIndex:WorldSessionExists(index, session_id, cb)
@@ -3208,9 +3275,10 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
     write_world_index_sidecar(index, state, commit_queued_state)
 end
 
-function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions)
-    index, reason, cb, player_sessions = resolve_index_args(self, index, reason, cb, player_sessions)
+function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions, opts)
+    index, reason, cb, player_sessions, opts = resolve_index_args(self, index, reason, cb, player_sessions, opts)
     cb = cb or noop
+    opts = opts or {}
 
     local state = get_world_index_state(index)
     local home = get_world_index_home_state(state)
@@ -3247,11 +3315,15 @@ function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions)
 
     local sessions = player_sessions or state.return_player_sessions
     if sessions ~= nil and #sessions > 0 and TheNet ~= nil and TheNet:GetIsServer() then
+        local return_player_positions = home.player_positions
+        if opts.ignore_saved_positions then
+            return_player_positions = nil
+        end
         inject_player_sessions_into_existing_world(index, home.session_id, sessions, function()
             state.return_player_sessions = nil
             state.last_player_session_injected = home.session_id
             save_return_state()
-        end, home.return_position, home.player_positions)
+        end, home.return_position, return_player_positions, opts.spawn_prefab)
         return
     end
 
