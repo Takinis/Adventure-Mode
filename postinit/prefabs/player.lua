@@ -59,6 +59,7 @@ local function ShowAdventureTitle(inst, retries)
     local maxwell_intro = TheWorld.components.maxwellintrospawner
     local play_maxwell_intro = maxwell_intro ~= nil and
         maxwell_intro:PreparePlayer(inst, presentation_id) or false
+    local wait_for_players = play_maxwell_intro and maxwell_intro:ShouldWaitForPlayers() or false
 
     SendModRPCToClient(
         GetClientModRPC("AdventureMode", "StartAdventurePresentation"),
@@ -67,7 +68,8 @@ local function ShowAdventureTitle(inst, retries)
         preset,
         chapter,
         total,
-        play_maxwell_intro
+        play_maxwell_intro,
+        wait_for_players
     )
     sent_adventure_title_by_userid[inst.userid] = presentation_id
 end

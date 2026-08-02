@@ -102,6 +102,7 @@ local MaxwellIntroSpawner = Class(function(self, inst)
     self.participants = {}
     self.skip_votes = {}
     self.can_skip_intro = false
+    self.wait_for_players = nil
     self.maxwell = nil
     self.timeout_task = nil
     self.barrier_pause_requested = false
@@ -165,6 +166,7 @@ function MaxwellIntroSpawner:OnWallUpdate()
     self.inst:StopWallUpdatingComponent(self)
 
     local should_pause = self.barrier_pause_requested and
+        self.wait_for_players == true and
         (self.phase == "collecting" or self.phase == "title") and CountEntries(self.expected) > 1
     if self.barrier_pause_requested and not should_pause then
         self.barrier_pause_requested = false
@@ -183,6 +185,7 @@ end
 
 function MaxwellIntroSpawner:UpdateBarrierPause()
     self:SetBarrierPaused(
+        self.wait_for_players == true and
         (self.phase == "collecting" or self.phase == "title") and CountEntries(self.expected) > 1
     )
 end
@@ -205,8 +208,8 @@ function MaxwellIntroSpawner:BeginCollection(presentation_id)
     self.participants = {}
     self.skip_votes = {}
     self.can_skip_intro = false
+    self.wait_for_players = nil
     self:AddConnectedPlayers()
-    self:UpdateBarrierPause()
     self:RestartTimeout(WAIT_TIMEOUT)
 end
 
@@ -222,10 +225,21 @@ function MaxwellIntroSpawner:PreparePlayer(player, presentation_id)
         return false
     end
 
+    if self.wait_for_players == false and not self.expected[player.userid] then
+        return false
+    end
+
     self.expected[player.userid] = true
     self.players[player.userid] = player
+    if self.wait_for_players == nil then
+        self.wait_for_players = CountEntries(self.expected) > 1
+    end
     self:UpdateBarrierPause()
     return true
+end
+
+function MaxwellIntroSpawner:ShouldWaitForPlayers()
+    return self.wait_for_players == true
 end
 
 function MaxwellIntroSpawner:GetReadyUserids()
@@ -237,6 +251,10 @@ function MaxwellIntroSpawner:GetReadyUserids()
 end
 
 function MaxwellIntroSpawner:SendWaitStatus()
+    if not self.wait_for_players then
+        return
+    end
+
     local userids = self:GetReadyUserids()
     if #userids > 0 then
         SendModRPCToClient(
@@ -280,7 +298,8 @@ function MaxwellIntroSpawner:SetPlayerReady(player, presentation_id)
 end
 
 function MaxwellIntroSpawner:OnClientAuthenticated(userid)
-    if self.phase ~= "collecting" or type(userid) ~= "string" or userid == "" then
+    if self.phase ~= "collecting" or not self.wait_for_players or
+        type(userid) ~= "string" or userid == "" then
         return
     end
 
@@ -317,6 +336,7 @@ function MaxwellIntroSpawner:ClearPresentation(phase)
     self.participants = {}
     self.skip_votes = {}
     self.can_skip_intro = false
+    self.wait_for_players = nil
 end
 
 function MaxwellIntroSpawner:AbortPresentation()

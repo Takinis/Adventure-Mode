@@ -209,6 +209,12 @@ local function StartTitle(presentation)
     )
 end
 
+local function StartSinglePlayerPresentation(presentation)
+    RunActivationCallback(presentation)
+    SendModRPCToServer(GetModRPC("AdventureMode", "AdventurePresentationReady"), presentation.id)
+    StartTitle(presentation)
+end
+
 local function StartPresentation(fade)
     local presentation = queued_presentation
     if presentation == nil then
@@ -219,8 +225,10 @@ local function StartPresentation(fade)
     presentation.fade = fade
     active_presentation = presentation
 
-    if presentation.play_maxwell_intro then
+    if presentation.play_maxwell_intro and presentation.wait_for_players then
         WaitForPlayers(presentation)
+    elseif presentation.play_maxwell_intro then
+        StartSinglePlayerPresentation(presentation)
     else
         StartTitle(presentation)
     end
@@ -280,7 +288,7 @@ local function StartStandalonePresentation()
     end, nil, nil, TITLE_FADE_TYPE)
 end
 
-local function QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro)
+local function QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro, wait_for_players)
     if type(presentation_id) ~= "string" or presentation_id == "" then
         return
     end
@@ -297,6 +305,7 @@ local function QueueAdventurePresentation(presentation_id, title, subtitle, play
         title = title,
         subtitle = subtitle,
         play_maxwell_intro = play_maxwell_intro == true,
+        wait_for_players = wait_for_players == true,
     }
 
     if activation_fade ~= nil then
@@ -454,8 +463,8 @@ local function OnLocalPlayerDeactivated(inst)
     end
 end
 
-function FrontEnd:QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro)
-    QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro)
+function FrontEnd:QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro, wait_for_players)
+    QueueAdventurePresentation(presentation_id, title, subtitle, play_maxwell_intro, wait_for_players)
 end
 
 function FrontEnd:AbortAdventurePresentation(presentation_id)

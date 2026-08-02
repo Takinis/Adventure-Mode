@@ -6,7 +6,7 @@ GLOBAL.setfenv(1, GLOBAL)
 local Levels = require("map/levels")
 local EndGameDialog = require("screens/endgamedialog")
 
-AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(presentation_id, preset, chapter, total, play_maxwell_intro)
+AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(presentation_id, preset, chapter, total, play_maxwell_intro, wait_for_players)
     if type(presentation_id) ~= "string" or presentation_id == "" or
         type(chapter) ~= "number" or type(total) ~= "number" then
         return
@@ -17,7 +17,13 @@ AddClientModRPCHandler("AdventureMode", "StartAdventurePresentation", function(p
         level = level or tostring(preset or "Adventure")
         local chapter_text = preset == "ENDING" and STRINGS.UI.SANDBOXMENU.CHAPTERS[6] or
             string.format(STRINGS.UI.SANDBOXMENU.ADVENTURECHAPTER, chapter, total)
-        TheFrontEnd:QueueAdventurePresentation(presentation_id, level, chapter_text, play_maxwell_intro == true)
+        TheFrontEnd:QueueAdventurePresentation(
+            presentation_id,
+            level,
+            chapter_text,
+            play_maxwell_intro == true,
+            wait_for_players == true
+        )
     end
 end)
 
@@ -74,6 +80,7 @@ AddClientModRPCHandler("AdventureMode", "AbortAdventurePresentation", function(p
 end)
 
 local maxwell_throne_cutscene_guid = nil
+local MAXWELL_THRONE_CAMERA_HEADING = 0
 
 local function IsMaxwellThroneCutscene(guid)
     if type(guid) ~= "number" then
@@ -134,6 +141,8 @@ AddClientModRPCHandler("AdventureMode", "StartMaxwellThroneCutscene", function(g
     end
 
     if TheCamera ~= nil then
+        TheCamera:SetHeadingTarget(MAXWELL_THRONE_CAMERA_HEADING)
+        TheCamera:Snap()
         TheCamera:CutsceneMode(true)
         TheCamera:SetCustomLocation(Vector3(x, y, z))
         TheCamera:SetGains(0.5, 0.1, 2)
