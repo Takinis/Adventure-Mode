@@ -7,7 +7,7 @@ description = en_zh("Bringing you the adventure mode experience that recreates D
 author = "Sydney & Ardent & Kiseru"
 forumthread = ""
 
-version = "1.0.6"
+version = "1.0.7"
 api_version = 10
 
 dst_compatible = true
