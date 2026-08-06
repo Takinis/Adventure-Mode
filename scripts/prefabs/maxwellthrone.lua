@@ -310,7 +310,7 @@ local function ApplyPuppetCharacter(inst)
         monkey_curse = inst._puppet_monkey_curse:value(),
     })
     if skins ~= nil then
-        inst.components.skinner:MakePuppetCopySkinsFromPlayer(
+        inst.components.skinner:ApplyAdventureModeCopiedSkins(
             character,
             inst._puppet_userid:value(),
             skins,
@@ -694,7 +694,7 @@ local function SetUpCutscene(inst, doer, replacement)
 
     local pt = inst:GetPosition()
     ForEachCutscenePlayer(inst, function(player)
-        player:ForceFacePoint(pt.x - 100, pt.y, pt.z)
+        player:ForceFacePoint(pt.x, pt.y, pt.z)
     end)
 
     SendCutsceneRPCToPlayers(inst, "StartMaxwellThroneCutscene", inst.GUID, pt.x, pt.y, pt.z)

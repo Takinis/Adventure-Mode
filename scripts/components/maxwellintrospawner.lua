@@ -526,7 +526,7 @@ function MaxwellIntroSpawner:StartSharedIntro()
         if self.locked_players[userid] == nil and LockPlayer(player) then
             self.locked_players[userid] = player
         end
-        player:FacePoint(x, y, z)
+        player:ForceFacePoint(x, y, z)
         table.insert(userids, userid)
     end
 

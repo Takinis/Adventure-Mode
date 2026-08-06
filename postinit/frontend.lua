@@ -379,7 +379,7 @@ local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_ski
     if player.HUD ~= nil then
         player.HUD:Hide()
     end
-    player:FacePoint(x, y, z)
+    player:ForceFacePoint(x, y, z)
 
     if TheCamera ~= nil then
         local px, py, pz = player.Transform:GetWorldPosition()
