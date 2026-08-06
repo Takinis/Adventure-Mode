@@ -7,6 +7,7 @@ local TITLE_FADE_TYPE = "black"
 local ACTIVATION_PRESENTATION_WAIT_TIME = .75
 local MAXWELL_INTRO_START_TIMEOUT = 50
 local MAXWELL_INTRO_RELEASE_TIME = 1.5
+local TITLE_SILENCE_MIX = "adventure_title_silence"
 local MAXWELL_INTRO_INPUTS =
 {
     CONTROL_PRIMARY,
@@ -21,6 +22,20 @@ if TheNet ~= nil and TheNet:IsDedicated() then
     return
 end
 
+TheMixer:AddNewMix(TITLE_SILENCE_MIX, 0, 2147483646,
+{
+    ["set_ambience/ambience"] = 0,
+    ["set_ambience/cloud"] = 0,
+    ["set_music/soundtrack"] = 0,
+    ["set_sfx/voice"] = 0,
+    ["set_sfx/movement"] = 0,
+    ["set_sfx/creature"] = 0,
+    ["set_sfx/player"] = 0,
+    ["set_sfx/HUD"] = 0,
+    ["set_sfx/sfx"] = 0,
+    ["set_sfx/everything_else_muted"] = 0,
+})
+
 local AdventureWaitingPopup = require("screens/adventurewaitingpopup")
 
 local queued_presentation = nil
@@ -31,7 +46,29 @@ local wait_for_activation_fade = nil
 local maxwell_intro = nil
 local maxwell_intro_release_task = nil
 local waiting_popup = nil
+local title_silence_active = false
+local title_silence_owner = nil
 local _Fade = FrontEnd.Fade
+
+local function StartTitleSilence(presentation)
+    if not title_silence_active then
+        title_silence_active = true
+        TheMixer:PushMix(TITLE_SILENCE_MIX)
+    end
+    title_silence_owner = presentation
+end
+
+local function StopTitleSilence(presentation)
+    if presentation ~= nil and title_silence_owner ~= presentation then
+        return
+    end
+
+    if title_silence_active then
+        title_silence_active = false
+        TheMixer:DeleteMix(TITLE_SILENCE_MIX)
+    end
+    title_silence_owner = nil
+end
 
 local function CancelTask(task)
     if task ~= nil then
@@ -133,6 +170,7 @@ local function AbortPresentation(presentation_id)
     ClearPresentationTasks(presentation)
     CloseWaitingPopup()
     TheFrontEnd:HideTitle()
+    StopTitleSilence(presentation)
     RevealWorld(presentation)
 end
 
@@ -165,6 +203,7 @@ local function StartTitle(presentation)
 
     local fade = presentation.fade
     presentation.phase = "title"
+    StartTitleSilence(presentation)
     if presentation.play_maxwell_intro then
         RestartIntroTimeout(presentation)
     end
@@ -180,6 +219,7 @@ local function StartTitle(presentation)
     end)
 
     local function OnTitleFinished()
+        StopTitleSilence(presentation)
         if active_presentation ~= presentation then
             return
         end
@@ -365,6 +405,7 @@ local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_ski
     CancelTask(presentation.intro_timeout_task)
     presentation.intro_timeout_task = nil
     presentation.phase = "intro"
+    StopTitleSilence()
     CloseWaitingPopup()
     CancelTask(maxwell_intro_release_task)
     maxwell_intro_release_task = nil
@@ -453,6 +494,7 @@ local function OnLocalPlayerDeactivated(inst)
     maxwell_intro = nil
     CancelTask(maxwell_intro_release_task)
     maxwell_intro_release_task = nil
+    StopTitleSilence()
     CloseWaitingPopup()
     TheFrontEnd:HideTitle()
     if inst.HUD ~= nil then
