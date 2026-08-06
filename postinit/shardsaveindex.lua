@@ -3,56 +3,90 @@
 
 GLOBAL.setfenv(1, GLOBAL)
 
-local function SlotHasActiveWorldIndexSidecar(slot)
-    return ShardWorldIndex:HasActiveSidecar(slot)
+local function SlotHasActiveWorldIndexSidecar(index, slot)
+    return index.world_index_slot_states ~= nil and index.world_index_slot_states[slot] ~= nil
 end
 
-local function ReadActiveWorldIndexSidecar(slot)
-    return ShardWorldIndex:ReadActiveSidecar(slot)
-end
-
-local function RecoverWorldIndexSlot(slot, state)
+local function RecoverWorldIndexSlot(index, slot, state, cb)
+    cb = cb or function() end
     if slot == nil or state == nil then
-        return false
+        cb(false)
+        return
     end
 
-    local shard_index = ShardSaveGameIndex ~= nil and ShardSaveGameIndex:GetShardIndex(slot, "Master") or nil
-    if shard_index == nil then
-        shard_index = ShardIndex()
-        shard_index:LoadShardInSlot(slot, "Master")
+    local function recover(shard_index)
         if not shard_index:IsValid() then
             shard_index.preserve_world_index_sidecar = true
             shard_index:NewShardInSlot(slot, "Master")
             shard_index.preserve_world_index_sidecar = nil
         end
-        ShardSaveGameIndex.slot_cache[slot] = ShardSaveGameIndex.slot_cache[slot] or {}
-        ShardSaveGameIndex.slot_cache[slot].Master = shard_index
+        index.slot_cache[slot] = index.slot_cache[slot] or {}
+        index.slot_cache[slot].Master = shard_index
+
+        if shard_index:GetSession() == nil or shard_index:GetSession() == "" then
+            shard_index.worldindex:SwitchIndexToStoredWorld(state)
+            shard_index:Save(function(success)
+                cb(success == true)
+            end)
+            return
+        end
+        cb(true)
     end
 
-    if shard_index:GetSession() == nil or shard_index:GetSession() == "" then
-        shard_index.worldindex:SwitchIndexToStoredWorld(state)
-        shard_index:Save()
+    local shard_index = index.slot_cache[slot] ~= nil and index.slot_cache[slot].Master or nil
+    if shard_index ~= nil then
+        recover(shard_index)
+        return
     end
-    return true
+
+    shard_index = ShardIndex()
+    shard_index:LoadShardInSlot(slot, "Master", function()
+        recover(shard_index)
+    end)
 end
 
-local function RefreshWorldIndexSlots(index)
+local function RefreshWorldIndexSlots(index, cb)
+    cb = cb or function() end
     if index == nil or TheSim == nil then
+        cb()
         return
     end
 
     index.slots = index.slots or {}
-    for slot = 1, NUM_DST_SAVE_SLOTS do
-        local state = ReadActiveWorldIndexSidecar(slot)
-        if state ~= nil and RecoverWorldIndexSlot(slot, state) then
-            index.slots[slot] = index.slots[slot] or false
+    index.world_index_slot_states = {}
+    local slot = 1
+
+    local function read_next()
+        if slot > NUM_DST_SAVE_SLOTS then
+            cb()
+            return
         end
+
+        local current_slot = slot
+        slot = slot + 1
+        ShardWorldIndex:ReadActiveSidecar(current_slot, function(state)
+            if state == nil then
+                read_next()
+                return
+            end
+
+            index.world_index_slot_states[current_slot] = state
+            index.slots[current_slot] = index.slots[current_slot] or false
+            RecoverWorldIndexSlot(index, current_slot, state, function(success)
+                if not success then
+                    print("[Shard World Index] Failed to recover reserved slot "..tostring(current_slot)..".")
+                end
+                read_next()
+            end)
+        end)
     end
+
+    read_next()
 end
 
 local _IsSlotEmpty = ShardSaveIndex.IsSlotEmpty
 function ShardSaveIndex:IsSlotEmpty(slot)
-    if SlotHasActiveWorldIndexSidecar(slot) then
+    if SlotHasActiveWorldIndexSidecar(self, slot) then
         return false
     end
     return _IsSlotEmpty(self, slot)
@@ -67,7 +101,7 @@ function ShardSaveIndex:GetNextNewSlot(force_slot_type)
     local i = 1
     while true do
         if (self.failed_slot_conversions or {})[i] == nil and
-            not SlotHasActiveWorldIndexSidecar(i) and
+            not SlotHasActiveWorldIndexSidecar(self, i) and
             (self.slots[i] == nil or self:IsSlotEmpty(i)) then
             return i
         end
@@ -79,21 +113,20 @@ local _Load = ShardSaveIndex.Load
 function ShardSaveIndex:Load(callback)
     _Load(self, function(...)
         local args = { ... }
-        RefreshWorldIndexSlots(self)
-        if callback ~= nil then
-            callback(unpack(args))
-        end
+        RefreshWorldIndexSlots(self, function()
+            if callback ~= nil then
+                callback(unpack(args))
+            end
+        end)
     end)
 end
 
 local _GetValidSlots = ShardSaveIndex.GetValidSlots
 function ShardSaveIndex:GetValidSlots()
-    RefreshWorldIndexSlots(self)
     return _GetValidSlots(self)
 end
 
 local _Save = ShardSaveIndex.Save
 function ShardSaveIndex:Save(callback)
-    RefreshWorldIndexSlots(self)
     return _Save(self, callback)
 end

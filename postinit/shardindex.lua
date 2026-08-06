@@ -170,15 +170,23 @@ function ShardIndex:Delete(cb, save_options)
         return
     end
 
-    self.worldindex:PrepareDelete(save_options, function()
-        _Delete(self, cb, save_options)
+    self.worldindex:PrepareDelete(save_options, function(success)
+        if success then
+            _Delete(self, cb, save_options)
+        elseif cb ~= nil then
+            cb(false)
+        end
     end)
 end
 
 local _SetServerShardData = ShardIndex.SetServerShardData
 function ShardIndex:SetServerShardData(customoptions, serverdata, onsavedcb)
-    local function set_server_shard_data()
-        _SetServerShardData(self, customoptions, serverdata, onsavedcb)
+    local function set_server_shard_data(success)
+        if success ~= false then
+            _SetServerShardData(self, customoptions, serverdata, onsavedcb)
+        elseif onsavedcb ~= nil then
+            onsavedcb(false)
+        end
     end
 
     if not self.worldindex:PrepareSetServerShardData(set_server_shard_data) then

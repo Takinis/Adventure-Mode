@@ -14,6 +14,7 @@ local ADVENTURE_WORLD_INDEX_FILE_ID = "adventure"
 local ADVENTURE_DARKNESS_LEVEL = "DARKNESS"
 local ADVENTURE_ENDING_LEVEL = "ENDING"
 local ADVENTURE_LEVEL_COUNT = 4
+local PUPPET_SYMBOLS = { "foot", "leg" }
 
 local function get_adventure_playlist_level_id(level)
     if type(level) == "table" then
@@ -190,7 +191,11 @@ local function inject_late_joiners_into_main_world(index, run, cb)
         return
     end
 
-    index.worldindex:InjectPlayerSessionsIntoExistingWorld(run.main.session_id, sessions, cb)
+    index.worldindex:InjectPlayerSessionsIntoExistingWorld(
+        run.main.session_id,
+        ShardWorldIndex:GetCharacterOnlySessions(sessions),
+        cb
+    )
 end
 
 local function cache_adventure_player_session(index, inst, mark_late_joiner)
@@ -232,10 +237,6 @@ end
 
 local function send_force_players_to_master_rpc()
     ShardWorldIndex:SendForcePlayersToMasterRPC("AdventureMode", "ForcePlayersToMaster")
-end
-
-local function send_secondary_adventure_rpc(name, data)
-    ShardWorldIndex:SendRPCToOtherSecondaryShards("AdventureMode", name, data)
 end
 
 local function send_master_adventure_rpc(name, data)
@@ -316,11 +317,54 @@ local function get_maxwell_throne_puppet_record(record)
         build = character
     end
 
+    local skins = record.skins
+    if type(skins) == "table" then
+        skins =
+        {
+            base = type(skins.base) == "string" and skins.base or "",
+            body = type(skins.body) == "string" and skins.body or "",
+            hand = type(skins.hand) == "string" and skins.hand or "",
+            legs = type(skins.legs) == "string" and skins.legs or "",
+            feet = type(skins.feet) == "string" and skins.feet or "",
+            mode = type(skins.mode) == "string" and skins.mode or "",
+            monkey_curse = type(skins.monkey_curse) == "string" and skins.monkey_curse or "",
+        }
+        if skins.base == "" and
+            skins.body == "" and
+            skins.hand == "" and
+            skins.legs == "" and
+            skins.feet == "" and
+            skins.mode == "" and
+            skins.monkey_curse == "" then
+            skins = nil
+        else
+            skins.mode = skins.mode ~= "" and skins.mode or "normal_skin"
+        end
+    else
+        skins = nil
+    end
+
+    local symbols = {}
+    for _, target in ipairs(PUPPET_SYMBOLS) do
+        local data = type(record.symbols) == "table" and record.symbols[target] or nil
+        if type(data) == "table" and type(data.build) == "number" and type(data.symbol) == "number" then
+            symbols[target] =
+            {
+                build = data.build,
+                symbol = data.symbol,
+                skin = data.skin == true,
+            }
+        end
+    end
+    symbols = next(symbols) ~= nil and symbols or nil
+
     return
     {
         character = character,
         build = build,
         userid = type(record.userid) == "string" and record.userid or nil,
+        skins = skins,
+        symbols = symbols,
     }
 end
 
@@ -471,6 +515,99 @@ function ShardAdventureIndex:GetState()
     return self.index.worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
 end
 
+function ShardAdventureIndex:GetSecondarySyncData()
+    local run = self:GetState()
+    if run == nil or not run.active then
+        return { active = false }
+    end
+    return
+    {
+        active = true,
+        chapter = run.chapter,
+        sequence_id = run.sequence_id,
+        level_sequence = ShardWorldIndex:DeepCopy(run.level_sequence),
+    }
+end
+
+function ShardAdventureIndex:SynchronizeSecondary(data, cb)
+    cb = cb or NOOP
+    data = type(data) == "table" and data or {}
+    local index = self.index
+
+    local function clear_completed_transaction(run, done)
+        local cleanup_session_id = run ~= nil and run.deferred_cleanup_session_id or nil
+        if run == nil or (run.secondary_transition == nil and cleanup_session_id == nil) then
+            done(true)
+            return
+        end
+
+        run.secondary_transition = nil
+        run.deferred_cleanup_session_id = nil
+        write_sidecar(index, run, function(saved)
+            if saved and cleanup_session_id ~= nil and cleanup_session_id ~= "" and run.main ~= nil then
+                ShardWorldIndex:DeleteSessionIfNotHome(cleanup_session_id, run.main.session_id)
+            end
+            done(saved == true)
+        end)
+    end
+
+    read_sidecar(index, function(run)
+        local is_active = run ~= nil and run.active == true
+
+        if data.active ~= true then
+            if not is_active then
+                clear_completed_transaction(run, function(success)
+                    cb(success, false)
+                end)
+                return
+            end
+            self:ReturnToMainWorld("resync", function(success)
+                cb(success == true, success == true)
+            end)
+            return
+        end
+
+        local level_sequence, sequence_error = normalize_adventure_playlist(data.level_sequence)
+        local chapter = math.floor(tonumber(data.chapter) or 0)
+        if level_sequence == nil or chapter < 1 or chapter > #level_sequence then
+            print("[Adventure Mode] Cannot synchronize secondary adventure: "..tostring(sequence_error or "invalid chapter")..".")
+            cb(false, false)
+            return
+        end
+
+        if is_active and run.sequence_id == (data.sequence_id or "default") and run.chapter == chapter then
+            clear_completed_transaction(run, function(success)
+                cb(success, false)
+            end)
+            return
+        end
+
+        local opts =
+        {
+            level_sequence = level_sequence,
+            chapter = chapter,
+            sequence_id = data.sequence_id,
+        }
+        local function begin()
+            self:BeginSecondary(opts, function(success)
+                cb(success == true, success == true)
+            end)
+        end
+
+        if is_active then
+            self:ReturnToMainWorld("resync", function(success)
+                if success then
+                    begin()
+                else
+                    cb(false, false)
+                end
+            end)
+        else
+            begin()
+        end
+    end)
+end
+
 function ShardAdventureIndex:GetMaxwellThronePuppet()
     return get_adventure_maxwell_throne_puppet(self.index)
 end
@@ -530,51 +667,59 @@ function ShardAdventureIndex:Begin(opts, cb)
     opts.chapter = initial_chapter
 
     local first_preset = ShardWorldIndex:GetLevelForShard(level_sequence[initial_chapter], worldindex:GetIndexShard())
+    local function begin_with_previous_run(previous_run)
+        local main_player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
+        local run =
+        {
+            active = true,
+            kind = "adventure",
+            file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
+            reason = "begin",
+            sequence_id = opts.sequence_id or "default",
+            slot = index:GetSlot(),
+            shard = worldindex:GetIndexShard(),
+            started_at = os.time(),
+            updated_at = os.time(),
+
+            level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
+            chapter = initial_chapter,
+            current_preset = first_preset,
+            current_session_id = nil,
+            player_sessions = ShardWorldIndex:GetCharacterOnlySessions(main_player_sessions),
+            participants = ShardWorldIndex:SessionsToUseridMap(main_player_sessions),
+            late_joiners = {},
+            adventure_player_sessions = {},
+            first_chapter_start_inv_pending = initial_chapter == 1,
+            first_chapter_start_inv_given = {},
+            maxwell_intro_played_chapters = {},
+            maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_run ~= nil and previous_run.maxwell_throne_puppet or nil),
+        }
+
+        worldindex:BeginWorldIndex({
+            kind = "adventure",
+            reason = "begin",
+            sequence_id = run.sequence_id,
+            target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
+            file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
+            reuse_existing = false,
+            level_sequence = level_sequence,
+            chapter = initial_chapter,
+            keep_session = true,
+            player_sessions = main_player_sessions,
+            fallback_player_sessions = false,
+            return_position = opts.return_position,
+            state = run,
+        }, function(success)
+            cb(success)
+        end)
+    end
+
     local previous_run = worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID)
-    local main_player_sessions = opts.player_sessions or ShardWorldIndex:CollectPlayerSessions()
-    local run =
-    {
-        active = true,
-        kind = "adventure",
-        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
-        reason = "begin",
-        sequence_id = opts.sequence_id or "default",
-        slot = index:GetSlot(),
-        shard = worldindex:GetIndexShard(),
-        started_at = os.time(),
-        updated_at = os.time(),
-
-        level_sequence = ShardWorldIndex:DeepCopy(level_sequence),
-        chapter = initial_chapter,
-        current_preset = first_preset,
-        current_session_id = nil,
-        player_sessions = ShardWorldIndex:GetCharacterOnlySessions(main_player_sessions),
-        participants = ShardWorldIndex:SessionsToUseridMap(main_player_sessions),
-        late_joiners = {},
-        adventure_player_sessions = {},
-        first_chapter_start_inv_pending = initial_chapter == 1,
-        first_chapter_start_inv_given = {},
-        maxwell_intro_played_chapters = {},
-        maxwell_throne_puppet = get_maxwell_throne_puppet_record(previous_run ~= nil and previous_run.maxwell_throne_puppet or nil),
-    }
-
-    worldindex:BeginWorldIndex({
-        kind = "adventure",
-        reason = "begin",
-        sequence_id = run.sequence_id,
-        target = { type = "generated", level = first_preset, world_type = "adventure", cleanup_on_return = true },
-        file_id = ADVENTURE_WORLD_INDEX_FILE_ID,
-        reuse_existing = false,
-        level_sequence = level_sequence,
-        chapter = initial_chapter,
-        keep_session = true,
-        player_sessions = main_player_sessions,
-        fallback_player_sessions = false,
-        return_position = opts.return_position,
-        state = run,
-    }, function(success)
-        cb(success)
-    end)
+    if previous_run ~= nil then
+        begin_with_previous_run(previous_run)
+    else
+        read_sidecar(index, begin_with_previous_run)
+    end
 end
 
 function ShardAdventureIndex:BeginSecondary(opts, cb)
@@ -641,6 +786,7 @@ function ShardAdventureIndex:BeginSecondary(opts, cb)
         first_chapter_start_inv_pending = false,
         first_chapter_start_inv_given = {},
         maxwell_intro_played_chapters = {},
+        secondary_transition = ShardWorldIndex:DeepCopy(opts.secondary_transition),
     }
 
     worldindex:BeginWorldIndex({
@@ -771,7 +917,7 @@ function ShardAdventureIndex:Complete(cb)
     return self:Advance(cb)
 end
 
-function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
+function ShardAdventureIndex:ReturnToMainWorld(reason, cb, opts)
     local index = self.index
     local worldindex = index.worldindex
     cb = cb or NOOP
@@ -786,29 +932,42 @@ function ShardAdventureIndex:ReturnToMainWorld(reason, cb)
     inject_late_joiners_into_main_world(index, run, function()
         worldindex:ReturnToStoredWorld(reason or "return", function(success)
             if success then
-                worldindex:RestoreParentWorldIndex(run, function()
-                    cb(success)
+                if opts ~= nil and opts.defer_parent_restore then
+                    cb(true)
+                    return
+                end
+                local finished_run = worldindex:GetState(ADVENTURE_WORLD_INDEX_FILE_ID) or run
+                worldindex:RestoreParentWorldIndex(finished_run, function(parent_restored)
+                    cb(parent_restored == true)
                 end)
                 return
             end
             cb(success)
-        end, run.main.player_sessions)
+        end, run.main.player_sessions, opts)
     end)
 end
 
-function ShardAdventureIndex:Start(opts)
+function ShardAdventureIndex:Start(opts, cb)
+    if type(opts) == "function" and cb == nil then
+        cb = opts
+        opts = nil
+    end
+    cb = cb or NOOP
     local index = self.index
     if index == nil then
+        cb(false)
         return false
     end
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
         print("[Adventure Mode] ShardGameIndex.adventure:Start must be called on the master shard.")
+        cb(false)
         return false
     end
     opts = opts or {}
     local level_sequence, sequence_error = normalize_adventure_playlist(opts.level_sequence or self:BuildPlaylist())
     if level_sequence == nil then
         print("[Adventure Mode] Cannot start adventure: " .. tostring(sequence_error) .. ".")
+        cb(false)
         return false
     end
     opts.level_sequence = level_sequence
@@ -816,27 +975,52 @@ function ShardAdventureIndex:Start(opts)
     local initial_chapter = opts.chapter or 1
     if type(initial_chapter) ~= "number" then
         print("[Adventure Mode] Cannot start at chapter " .. tostring(initial_chapter) .. ".")
+        cb(false)
         return false
     end
     initial_chapter = math.floor(initial_chapter)
     if initial_chapter < 1 or initial_chapter > #level_sequence then
         print("[Adventure Mode] Cannot start at chapter " .. tostring(initial_chapter) .. ".")
+        cb(false)
         return false
     end
     opts.chapter = initial_chapter
 
     local function begin_after_save()
-        self:Begin(opts, function(success)
-            if success then
-                send_secondary_adventure_rpc("BeginSecondaryAdventure", opts)
-                restart_current_slot_after_shard_rpc(index, { adventure_transition = "begin" })
+        ShardWorldIndex:RequestSecondaryWorldIndex("BeginSecondaryAdventure", {
+            level_sequence = opts.level_sequence,
+            chapter = opts.chapter,
+            sequence_id = opts.sequence_id,
+            reason = "begin",
+        }, function(secondary_ready, request)
+            if not secondary_ready then
+                cb(false)
+                return
             end
+
+            self:Begin(opts, function(success)
+                if not success then
+                    ShardWorldIndex:AbortSecondaryWorldIndex(request)
+                    cb(false)
+                    return
+                end
+                ShardWorldIndex:CommitSecondaryWorldIndex(request, function(committed)
+                    if committed then
+                        restart_current_slot_after_shard_rpc(index, { adventure_transition = "begin" })
+                    end
+                    cb(committed == true)
+                end, opts.secondary_shard_wait_timeout or nil)
+            end)
         end)
     end
 
     if TheWorld ~= nil and TheWorld.ismastersim then
         send_force_players_to_master_rpc()
-        self:WaitForSecondaryShardPlayersEmpty(function()
+        self:WaitForSecondaryShardPlayersEmpty(function(players_ready)
+            if not players_ready then
+                cb(false)
+                return
+            end
             index:SaveCurrent(begin_after_save)
         end, opts ~= nil and opts.secondary_shard_wait_timeout or nil, opts ~= nil and opts.secondary_shard_wait_poll_interval or nil)
     else
@@ -846,39 +1030,85 @@ function ShardAdventureIndex:Start(opts)
     return true
 end
 
-function ShardAdventureIndex:AdvanceShard(opts)
+function ShardAdventureIndex:AdvanceShard(opts, cb)
+    if type(opts) == "function" and cb == nil then
+        cb = opts
+        opts = nil
+    end
+    cb = cb or NOOP
     local index = self.index
     if index == nil or not self:IsActive() then
+        cb(false)
         return false
     end
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
         print("[Adventure Mode] ShardGameIndex.adventure:AdvanceShard must be called on the master shard.")
+        cb(false)
         return false
     end
 
     opts = opts or {}
+    local run = self:GetState()
+    local requested_chapter = math.floor(tonumber(opts.chapter) or ((run.chapter or 1) + 1))
+    local operation = requested_chapter > #run.level_sequence and
+        "ReturnSecondaryAdventure" or "AdvanceSecondaryAdventure"
+    local secondary_opts = operation == "ReturnSecondaryAdventure" and
+        { reason = "complete" } or { chapter = requested_chapter, reason = "advance" }
 
     local function advance_after_save()
-        self:Advance(opts, function(success, next_chapter)
-            if success then
-                if next_chapter ~= nil then
-                    send_secondary_adventure_rpc("AdvanceSecondaryAdventure", { chapter = next_chapter })
-                    restart_current_slot_after_shard_rpc(index, { adventure_transition = "advance" })
-                else
-                    send_secondary_adventure_rpc("ReturnSecondaryAdventure", { reason = "complete" })
-                    restart_current_slot_after_shard_rpc(index, { adventure_transition = "complete" })
+        ShardWorldIndex:RequestSecondaryWorldIndex(operation, secondary_opts, function(secondary_ready, request)
+            if not secondary_ready then
+                cb(false)
+                return
+            end
+            local function on_local_transition(success, next_chapter)
+                if not success then
+                    ShardWorldIndex:AbortSecondaryWorldIndex(request)
+                    cb(false)
+                    return
                 end
+                ShardWorldIndex:CommitSecondaryWorldIndex(request, function(committed)
+                    if operation ~= "ReturnSecondaryAdventure" then
+                        if committed then
+                            restart_current_slot_after_shard_rpc(index, { adventure_transition = "advance" })
+                        end
+                        cb(committed == true)
+                        return
+                    end
+
+                    local finished_run = self:GetState()
+                    if committed then
+                        index.worldindex:FinalizeDeferredReturn(finished_run, function(finalized)
+                            if not finalized then
+                                print("[Adventure Mode] Deferred return cleanup will resume after restart.")
+                            end
+                            restart_current_slot_after_shard_rpc(index, { adventure_transition = "complete" })
+                            cb(true)
+                        end)
+                    else
+                        index.worldindex:RollbackDeferredReturn(finished_run, function()
+                            cb(false)
+                        end)
+                    end
+                end, opts.secondary_shard_wait_timeout or nil)
+            end
+
+            if operation == "ReturnSecondaryAdventure" then
+                self:ReturnToMainWorld("complete", function(success)
+                    on_local_transition(success, nil)
+                end, { defer_cleanup = true, defer_parent_restore = true })
+            else
+                self:Advance(opts, on_local_transition)
             end
         end)
     end
 
     if TheWorld ~= nil and TheWorld.ismastersim then
-        if ShardWorldIndex:GetSecondaryShardPlayerCount() > 0 then
-            print("[Adventure Mode] Cannot advance while players are on secondary shards.")
-            return false
-        end
-
-        self:WaitForSecondaryShardPlayersEmpty(function()
+        self:WaitForSecondaryShardPlayersEmpty(function(players_ready)
+            if not players_ready then
+                cb(false)
+                return
+            end
             ShardWorldIndex:SavePlayers()
             advance_after_save()
         end, opts.secondary_shard_wait_timeout or nil, opts.secondary_shard_wait_poll_interval or nil)
@@ -889,33 +1119,67 @@ function ShardAdventureIndex:AdvanceShard(opts)
     return true
 end
 
-function ShardAdventureIndex:CompleteShard(opts)
-    return self:AdvanceShard(opts)
+function ShardAdventureIndex:CompleteShard(opts, cb)
+    return self:AdvanceShard(opts, cb)
 end
 
-function ShardAdventureIndex:ReturnFromShard(reason)
+function ShardAdventureIndex:ReturnFromShard(reason, cb)
+    cb = cb or NOOP
     local index = self.index
     if index == nil or not self:IsActive() then
+        cb(false)
         return false
     end
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
         send_master_adventure_rpc("ReturnFromAdventure", { reason = reason or "return" })
+        cb(true)
         return true
     end
 
     local function return_after_save()
         ShardWorldIndex:SavePlayers()
-        self:ReturnToMainWorld(reason or "return", function(success)
-            if success then
-                send_secondary_adventure_rpc("ReturnSecondaryAdventure", { reason = reason or "return" })
-                restart_current_slot_after_shard_rpc(index, { adventure_transition = reason or "return" })
+        ShardWorldIndex:RequestSecondaryWorldIndex("ReturnSecondaryAdventure", {
+            reason = reason or "return",
+        }, function(secondary_ready, request)
+            if not secondary_ready then
+                cb(false)
+                return
             end
+            self:ReturnToMainWorld(reason or "return", function(success)
+                if not success then
+                    ShardWorldIndex:AbortSecondaryWorldIndex(request)
+                    cb(false)
+                    return
+                end
+                ShardWorldIndex:CommitSecondaryWorldIndex(request, function(committed)
+                    if committed then
+                        local finished_run = self:GetState()
+                        index.worldindex:FinalizeDeferredReturn(finished_run, function(finalized)
+                            if not finalized then
+                                print("[Adventure Mode] Deferred return cleanup will resume after restart.")
+                            end
+                            restart_current_slot_after_shard_rpc(index, { adventure_transition = reason or "return" })
+                            cb(true)
+                        end)
+                    else
+                        index.worldindex:RollbackDeferredReturn(self:GetState(), function()
+                            cb(false)
+                        end)
+                    end
+                end)
+            end, { defer_cleanup = true, defer_parent_restore = true })
         end)
     end
 
     if TheWorld ~= nil and TheWorld.ismastersim then
         send_force_players_to_master_rpc()
-        self:WaitForSecondaryShardPlayersEmpty(return_after_save)
+        self:WaitForSecondaryShardPlayersEmpty(function(players_ready)
+            if players_ready then
+                return_after_save()
+            else
+                cb(false)
+            end
+        end)
     else
         return_after_save()
     end

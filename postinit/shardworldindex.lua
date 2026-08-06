@@ -57,6 +57,16 @@ local PORKLAND_SECONDARY_LEVEL =
 local function noop()
 end
 
+local function save_index(index, cb)
+    cb = cb or noop
+    index:Save(function(success)
+        if success ~= true and index.MarkDirty ~= nil then
+            index:MarkDirty()
+        end
+        cb(success == true)
+    end)
+end
+
 local function deepcopy_safe(value)
     return value ~= nil and deepcopy(value) or nil
 end
@@ -137,11 +147,15 @@ end
 local function write_worldgenoverride_str(index, str, cb)
     cb = cb or noop
 
+    local function onwrite(success)
+        cb(success == true)
+    end
+
     local slot, shard = get_slot_and_shard(index)
     if slot ~= nil and shard ~= nil then
-        TheSim:SetPersistentStringInClusterSlot(slot, shard, WORLDGENOVERRIDE_FILE, str, false, cb)
+        TheSim:SetPersistentStringInClusterSlot(slot, shard, WORLDGENOVERRIDE_FILE, str, false, onwrite)
     else
-        TheSim:SetPersistentString(WORLDGENOVERRIDE_FILE, str, false, cb)
+        TheSim:SetPersistentString(WORLDGENOVERRIDE_FILE, str, false, onwrite)
     end
 end
 
@@ -672,6 +686,7 @@ end
 
 local secondary_world_index_request_serial = 0
 local pending_secondary_world_index_request = nil
+local prepared_secondary_world_index_requests = {}
 
 local function get_secondary_shard_ids()
     local shardids = {}
@@ -691,6 +706,26 @@ local function get_secondary_shard_ids()
     return shardids
 end
 
+local function send_secondary_world_index_abort(request)
+    if request == nil then
+        return
+    end
+
+    local rpc = GetShardModRPC("AdventureMode", "AbortSecondaryWorldIndex")
+    if rpc == nil then
+        return
+    end
+    for _, shardid in ipairs(request.shardids or {}) do
+        local prepared = request.prepared ~= nil and request.prepared[shardid] or nil
+        SendModRPCToShard(rpc, shardid, ZipAndEncodeString({
+            request_id = request.id,
+            operation = request.operation,
+            file_id = prepared ~= nil and prepared.file_id or nil,
+        }))
+    end
+    prepared_secondary_world_index_requests[request.id] = nil
+end
+
 local function finish_secondary_world_index_request(request, success)
     if pending_secondary_world_index_request ~= request then
         return
@@ -701,7 +736,42 @@ local function finish_secondary_world_index_request(request, success)
         request.timeout_task:Cancel()
         request.timeout_task = nil
     end
-    request.cb(success)
+    local cb = request.cb or noop
+    local should_abort = false
+    local should_finalize = false
+    if request.phase == "prepare" and success then
+        prepared_secondary_world_index_requests[request.id] = request
+    elseif request.phase == "prepare" then
+        should_abort = true
+    elseif request.phase == "commit" then
+        prepared_secondary_world_index_requests[request.id] = nil
+        should_finalize = success
+        should_abort = not success
+    end
+
+    local function finish()
+        if should_abort then
+            send_secondary_world_index_abort(request)
+        elseif should_finalize then
+            local rpc = GetShardModRPC("AdventureMode", "FinalizeSecondaryWorldIndex")
+            if rpc ~= nil then
+                for _, shardid in ipairs(request.shardids or {}) do
+                    local prepared = request.prepared ~= nil and request.prepared[shardid] or nil
+                    SendModRPCToShard(rpc, shardid, ZipAndEncodeString({
+                        request_id = request.id,
+                        operation = request.operation,
+                        file_id = prepared ~= nil and prepared.file_id or nil,
+                    }))
+                end
+            end
+        end
+        cb(success, success and request or nil)
+    end
+    if TheWorld ~= nil then
+        TheWorld:DoStaticTaskInTime(0, finish)
+    else
+        finish()
+    end
 end
 
 local function request_secondary_world_index(name, data, cb, timeout)
@@ -711,16 +781,21 @@ local function request_secondary_world_index(name, data, cb, timeout)
         cb(false)
         return false
     end
-    if pending_secondary_world_index_request ~= nil then
+    if pending_secondary_world_index_request ~= nil or next(prepared_secondary_world_index_requests) ~= nil then
         print("[Shard World Index] Another secondary WorldIndex request is still pending.")
         cb(false)
         return false
     end
 
-    local rpc = GetShardModRPC("AdventureMode", name)
     local shardids = get_secondary_shard_ids()
-    if rpc == nil or #shardids == 0 then
-        print("[Shard World Index] No connected secondary shard can prepare "..tostring(name)..".")
+    if #shardids == 0 then
+        cb(true, nil)
+        return true
+    end
+
+    local rpc = GetShardModRPC("AdventureMode", name)
+    if rpc == nil then
+        print("[Shard World Index] Missing shard RPC for "..tostring(name)..".")
         cb(false)
         return false
     end
@@ -734,7 +809,10 @@ local function request_secondary_world_index(name, data, cb, timeout)
     {
         id = request_id,
         operation = name,
+        phase = "prepare",
+        shardids = shardids,
         waiting = {},
+        prepared = {},
         cb = cb,
     }
     for _, shardid in ipairs(shardids) do
@@ -753,9 +831,8 @@ local function request_secondary_world_index(name, data, cb, timeout)
             table.insert(missing, tostring(shardid))
         end
         table.sort(missing)
-        pending_secondary_world_index_request = nil
         print("[Shard World Index] Timed out waiting for "..tostring(name).." replies from shards: "..table.concat(missing, ", ")..".")
-        request.cb(false)
+        finish_secondary_world_index_request(request, false)
     end)
 
     local payload = ZipAndEncodeString(payload_data)
@@ -766,21 +843,90 @@ local function request_secondary_world_index(name, data, cb, timeout)
     return true
 end
 
+local function commit_secondary_world_index_request(request, cb, timeout)
+    cb = cb or noop
+    if request == nil then
+        cb(true)
+        return true
+    end
+    if prepared_secondary_world_index_requests[request.id] ~= request or pending_secondary_world_index_request ~= nil then
+        cb(false)
+        return false
+    end
+
+    local rpc = GetShardModRPC("AdventureMode", "CommitSecondaryWorldIndex")
+    if rpc == nil then
+        send_secondary_world_index_abort(request)
+        cb(false)
+        return false
+    end
+
+    request.phase = "commit"
+    request.cb = cb
+    request.waiting = {}
+    for _, shardid in ipairs(request.shardids) do
+        request.waiting[shardid] = true
+    end
+    pending_secondary_world_index_request = request
+    request.timeout_task = TheWorld:DoStaticTaskInTime(timeout or SECONDARY_SHARD_WAIT_TIMEOUT, function()
+        request.timeout_task = nil
+        if pending_secondary_world_index_request ~= request then
+            return
+        end
+        local missing = {}
+        for shardid in pairs(request.waiting) do
+            table.insert(missing, tostring(shardid))
+        end
+        table.sort(missing)
+        print("[Shard World Index] Timed out waiting for commit replies from shards: "..table.concat(missing, ", ")..".")
+        finish_secondary_world_index_request(request, false)
+    end)
+
+    for _, shardid in ipairs(request.shardids) do
+        local prepared = request.prepared[shardid]
+        SendModRPCToShard(rpc, shardid, ZipAndEncodeString({
+            request_id = request.id,
+            operation = request.operation,
+            file_id = prepared ~= nil and prepared.file_id or nil,
+        }))
+    end
+    return true
+end
+
+local function abort_secondary_world_index_request(request)
+    if request == nil then
+        return
+    end
+    if pending_secondary_world_index_request == request then
+        pending_secondary_world_index_request = nil
+        if request.timeout_task ~= nil then
+            request.timeout_task:Cancel()
+            request.timeout_task = nil
+        end
+    end
+    send_secondary_world_index_abort(request)
+end
+
 local function handle_secondary_world_index_reply(shardid, data)
     local request = pending_secondary_world_index_request
     if request == nil or type(data) ~= "table" or data.request_id ~= request.id or
-        data.operation ~= request.operation or request.waiting[shardid] ~= true then
+        data.operation ~= request.operation or data.phase ~= request.phase or request.waiting[shardid] ~= true then
         return false
     end
 
     if data.success ~= true then
-        print("[Shard World Index] Shard "..tostring(shardid).." failed to prepare "..tostring(request.operation)..".")
+        print("[Shard World Index] Shard "..tostring(shardid).." failed during "..tostring(request.phase)..
+            " for "..tostring(request.operation)..".")
         finish_secondary_world_index_request(request, false)
         return true
     end
 
     request.waiting[shardid] = nil
-    print("[Shard World Index] Shard "..tostring(shardid).." prepared "..tostring(request.operation).." ("..request.id..").")
+    if request.phase == "prepare" then
+        request.prepared[shardid] = { file_id = data.file_id }
+    end
+    print("[Shard World Index] Shard "..tostring(shardid).." completed "..tostring(request.phase)..
+        " for "..tostring(request.operation).." ("..request.id..").")
     if next(request.waiting) == nil then
         finish_secondary_world_index_request(request, true)
     end
@@ -809,7 +955,7 @@ local function wait_for_secondary_shard_players_empty(cb, timeout, poll_interval
     cb = cb or noop
 
     if TheWorld == nil or TheShard == nil or TheShard.GetSecondaryShardPlayerCounts == nil or not is_master_shard() then
-        cb()
+        cb(true)
         return
     end
 
@@ -821,13 +967,15 @@ local function wait_for_secondary_shard_players_empty(cb, timeout, poll_interval
         local secondary_players = get_secondary_shard_player_counts()
 
         if secondary_players <= 0 then
-            TheWorld:DoTaskInTime(SECONDARY_SHARD_SETTLE_DELAY, cb)
+            TheWorld:DoTaskInTime(SECONDARY_SHARD_SETTLE_DELAY, function()
+                cb(true)
+            end)
             return
         end
 
         if GetTime() - started_at >= timeout then
             print("[Shard World Index] Timed out waiting for secondary shard players to return to master. Remaining secondary players: "..tostring(secondary_players))
-            cb()
+            cb(false)
             return
         end
 
@@ -1480,11 +1628,12 @@ local function read_world_index_sidecar(index, cb, file_id)
     local ids = get_known_world_index_file_ids(index, index.world_index_state ~= nil and index.world_index_state.file_id or nil)
     local active_state = nil
     local active_state_matches_session = false
+    local return_recovery_state = nil
     local i = 1
 
     local function read_next()
         if i > #ids then
-            cb(active_state)
+            cb(active_state or return_recovery_state)
             return
         end
 
@@ -1499,6 +1648,9 @@ local function read_world_index_sidecar(index, cb, file_id)
                     active_state = state
                     active_state_matches_session = matches_session
                 end
+            elseif state ~= nil and type(state.return_pending) == "table" and
+                type(state.parent_world_index_state) == "table" then
+                return_recovery_state = return_recovery_state or state
             end
             read_next()
         end)
@@ -1518,23 +1670,26 @@ local function write_world_index_sidecar(index, data, cb, file_id)
 
     local filename = get_world_index_sidecar_filename(index, file_id)
     local slot, shard = get_slot_and_shard(index)
+    local function onwrite(success)
+        cb(success == true)
+    end
     if data == nil then
         if slot ~= nil and shard ~= nil then
             -- Cluster-slot saves do not expose a Lua erase API; empty data is treated as cleared.
-            TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, "", false, cb)
+            TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, "", false, onwrite)
         elseif ErasePersistentString ~= nil then
-            ErasePersistentString(filename, cb)
+            ErasePersistentString(filename, onwrite)
         else
-            TheSim:SetPersistentString(filename, "", false, cb)
+            TheSim:SetPersistentString(filename, "", false, onwrite)
         end
         return
     end
 
     local str = DataDumper(data, nil, false)
     if slot ~= nil and shard ~= nil then
-        TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, str, false, cb)
+        TheSim:SetPersistentStringInClusterSlot(slot, shard, filename, str, false, onwrite)
     else
-        TheSim:SetPersistentString(filename, str, false, cb)
+        TheSim:SetPersistentString(filename, str, false, onwrite)
     end
 end
 
@@ -1624,8 +1779,12 @@ end
 
 local function clear_world_index_sidecar(index, cb, file_id)
     file_id = normalize_world_index_file_id(file_id or (get_world_index_state(index) ~= nil and get_world_index_state(index).file_id or nil))
-    set_world_index_state(index, nil, file_id)
-    write_world_index_sidecar(index, nil, cb, file_id)
+    write_world_index_sidecar(index, nil, function(success)
+        if success then
+            set_world_index_state(index, nil, file_id)
+        end
+        (cb or noop)(success)
+    end, file_id)
 end
 
 local function clear_all_world_index_sidecars(index, cb)
@@ -1633,11 +1792,15 @@ local function clear_all_world_index_sidecars(index, cb)
     local ids = get_known_world_index_file_ids(index, index.world_index_state ~= nil and index.world_index_state.file_id or nil)
     local i = 1
 
-    local function clear_next()
+    local function clear_next(success)
+        if success == false then
+            cb(false)
+            return
+        end
         if i > #ids then
             index.world_index_states = {}
             index.world_index_state = nil
-            cb()
+            cb(true)
             return
         end
 
@@ -1685,7 +1848,11 @@ end
 
 local function clear_interrupted_world_index_transition(index, cb)
     cb = cb or noop
-    clear_world_index_sidecar(index, function()
+    clear_world_index_sidecar(index, function(sidecar_cleared)
+        if not sidecar_cleared then
+            cb(false)
+            return
+        end
         restore_worldgenoverride(index, nil, cb)
     end)
 end
@@ -1752,6 +1919,8 @@ local function is_generation_source_session(state, session_id)
     return pending ~= nil and pending.generation_source_session_id == session_id
 end
 
+local restore_parent_world_index
+
 local function finish_interrupted_return_to_stored_world(index, state, cb)
     cb = cb or noop
 
@@ -1767,11 +1936,28 @@ local function finish_interrupted_return_to_stored_world(index, state, cb)
 
     switch_index_to_existing_world(index, home)
 
-    restore_worldgenoverride(index, home.worldgenoverride, function()
-        index:Save(function()
-            write_world_index_sidecar(index, state, function()
+    restore_worldgenoverride(index, home.worldgenoverride, function(worldgenoverride_saved)
+        if not worldgenoverride_saved then
+            cb(false)
+            return
+        end
+        save_index(index, function(index_saved)
+            if not index_saved then
+                cb(false)
+                return
+            end
+            write_world_index_sidecar(index, state, function(sidecar_saved)
+                if not sidecar_saved then
+                    cb(false)
+                    return
+                end
                 set_world_index_state(index, state)
-                cb()
+                local cleanup_session_id = type(state.return_pending) == "table" and
+                    state.return_pending.cleanup_session_id or nil
+                if cleanup_session_id ~= nil and cleanup_session_id ~= "" then
+                    delete_session_if_not_home(cleanup_session_id, home.session_id)
+                end
+                restore_parent_world_index(index, state, cb)
             end)
         end)
     end)
@@ -1782,7 +1968,7 @@ local function suspend_current_world_index_for_adventure(index, state, cb)
     state = ensure_world_index_home_aliases(state)
 
     if state == nil or state.active ~= true then
-        cb(nil)
+        cb(nil, true)
         return
     end
 
@@ -1795,15 +1981,20 @@ local function suspend_current_world_index_for_adventure(index, state, cb)
     state.current_enabled_mods = deepcopy_safe(index.enabled_mods) or state.current_enabled_mods
 
     local parent_state = deepcopy_safe(state)
-    state.active = false
-    state.suspend_reason = "adventure_begin"
-    state.suspended_at = os.time()
-    state.updated_at = os.time()
+    local suspended_state = deepcopy_safe(state)
+    suspended_state.active = false
+    suspended_state.suspend_reason = "adventure_begin"
+    suspended_state.suspended_at = os.time()
+    suspended_state.updated_at = os.time()
 
-    set_world_index_state(index, state)
-    write_world_index_sidecar(index, state, function()
-        cb(parent_state)
-    end, state.file_id)
+    write_world_index_sidecar(index, suspended_state, function(success)
+        if not success then
+            cb(nil, false)
+            return
+        end
+        set_world_index_state(index, suspended_state)
+        cb(parent_state, true)
+    end, suspended_state.file_id)
 end
 
 local function attach_parent_world_index_for_adventure(opts, parent_state)
@@ -1817,11 +2008,18 @@ local function attach_parent_world_index_for_adventure(opts, parent_state)
     return opts
 end
 
-local function restore_parent_world_index(index, state, cb)
+restore_parent_world_index = function(index, state, cb)
     cb = cb or noop
 
     local parent_state = type(state) == "table" and state.parent_world_index_state or nil
     if type(parent_state) ~= "table" then
+        if type(state) == "table" and state.return_pending ~= nil then
+            state.return_pending = nil
+            write_world_index_sidecar(index, state, function(saved)
+                cb(saved == true)
+            end, state.file_id)
+            return
+        end
         cb(true)
         return
     end
@@ -1840,10 +2038,53 @@ local function restore_parent_world_index(index, state, cb)
     parent_state.current_server = deepcopy_safe(index.server) or parent_state.current_server
     parent_state.current_enabled_mods = deepcopy_safe(index.enabled_mods) or parent_state.current_enabled_mods
 
-    set_world_index_state(index, parent_state, parent_state.file_id)
-    write_world_index_sidecar(index, parent_state, function()
-        cb(true)
+    write_world_index_sidecar(index, parent_state, function(parent_saved)
+        if not parent_saved then
+            cb(false)
+            return
+        end
+        set_world_index_state(index, parent_state, parent_state.file_id)
+
+        state.return_pending = nil
+        state.parent_world_index_state = nil
+        write_world_index_sidecar(index, state, function(adventure_saved)
+            cb(adventure_saved == true)
+        end, state.file_id)
     end, parent_state.file_id)
+end
+
+local function resume_suspended_world_index(index, parent_state, cb)
+    cb = cb or noop
+    parent_state = ensure_world_index_home_aliases(deepcopy_safe(parent_state))
+    if parent_state == nil or not switch_index_to_current_world(index, parent_state) then
+        cb(false)
+        return
+    end
+
+    parent_state.active = true
+    parent_state.suspend_reason = nil
+    parent_state.suspended_at = nil
+    parent_state.updated_at = os.time()
+    local home = get_world_index_home_state(parent_state)
+    local worldgenoverride = parent_state.current_worldgenoverride or (home ~= nil and home.worldgenoverride or nil)
+    restore_worldgenoverride(index, worldgenoverride, function(worldgenoverride_saved)
+        if not worldgenoverride_saved then
+            cb(false)
+            return
+        end
+        save_index(index, function(index_saved)
+            if not index_saved then
+                cb(false)
+                return
+            end
+            write_world_index_sidecar(index, parent_state, function(sidecar_saved)
+                if sidecar_saved then
+                    set_world_index_state(index, parent_state, parent_state.file_id)
+                end
+                cb(sidecar_saved == true)
+            end, parent_state.file_id)
+        end)
+    end)
 end
 
 local function recover_interrupted_generation_source(index, state, cb)
@@ -1867,11 +2108,23 @@ local function recover_interrupted_generation_source(index, state, cb)
     local worldgenoverride = recovery.current_worldgenoverride or
         (get_world_index_home_state(recovery) ~= nil and get_world_index_home_state(recovery).worldgenoverride or nil)
 
-    restore_worldgenoverride(index, worldgenoverride, function()
-        index:Save(function()
-            write_world_index_sidecar(index, recovery, function()
+    restore_worldgenoverride(index, worldgenoverride, function(worldgenoverride_saved)
+        if not worldgenoverride_saved then
+            cb(false)
+            return
+        end
+        save_index(index, function(index_saved)
+            if not index_saved then
+                cb(false)
+                return
+            end
+            write_world_index_sidecar(index, recovery, function(sidecar_saved)
+                if not sidecar_saved then
+                    cb(false)
+                    return
+                end
                 set_world_index_state(index, recovery)
-                cb()
+                cb(true)
             end)
         end)
     end)
@@ -2110,7 +2363,11 @@ local function prepare_current_world_index_regen(index, state, cb)
     local worldgenoverride = get_current_world_index_regen_worldgenoverride(index, state)
     if worldgenoverride ~= nil then
         state.current_worldgenoverride = worldgenoverride
-        restore_worldgenoverride(index, worldgenoverride, function()
+        restore_worldgenoverride(index, worldgenoverride, function(worldgenoverride_saved)
+            if not worldgenoverride_saved then
+                cb(false)
+                return
+            end
             write_world_index_sidecar(index, state, cb)
         end)
     else
@@ -2217,7 +2474,7 @@ local function finish_generated_world_index(index, state, session_identifier, sa
     cb = cb or noop
 
     if state == nil or not state.active then
-        cb()
+        cb(true)
         return
     end
 
@@ -2229,7 +2486,7 @@ local function finish_generated_world_index(index, state, session_identifier, sa
     end
 
     if session_identifier == nil or session_identifier == "" then
-        cb()
+        cb(false)
         return
     end
 
@@ -2284,10 +2541,16 @@ local function finish_generated_world_index(index, state, session_identifier, sa
             return
         end
 
-        write_world_index_sidecar(index, state, function()
-            delete_session_if_not_home(cleanup_session_id, home.session_id)
+        state.cleanup_session_id = nil
+        write_world_index_sidecar(index, state, function(sidecar_saved)
+            if not sidecar_saved then
+                state.cleanup_session_id = cleanup_session_id
+                cb(false)
+                return
+            end
             state.cleanup_session_id = nil
-            write_world_index_sidecar(index, state, cb)
+            delete_session_if_not_home(cleanup_session_id, home.session_id)
+            cb(true)
         end)
     end
 
@@ -2380,28 +2643,52 @@ local function commit_world_index_existing_target(index, state, target, cb)
     switch_index_to_existing_world(index, target)
 
     local function save_target()
-        write_world_index_sidecar(index, state, function()
-            index:Save(function()
+        write_world_index_sidecar(index, state, function(sidecar_saved)
+            if not sidecar_saved then
+                cb(false)
+                return
+            end
+            save_index(index, function(index_saved)
+                if not index_saved then
+                    cb(false)
+                    return
+                end
                 local sessions = state.player_sessions
                 if sessions ~= nil and #sessions > 0 and TheNet ~= nil and TheNet:GetIsServer() then
                     inject_player_sessions_into_existing_world(index, target.session_id, sessions, function()
                         state.player_sessions = nil
                         state.last_player_session_injected = target.session_id
-                        if should_cleanup_world_index_session(state) and
-                            cleanup_session_id ~= nil and cleanup_session_id ~= "" and cleanup_session_id ~= target.session_id then
-                            delete_session_if_not_home(cleanup_session_id, target.session_id)
+                        local should_delete = should_cleanup_world_index_session(state) and
+                            cleanup_session_id ~= nil and cleanup_session_id ~= "" and cleanup_session_id ~= target.session_id
+                        if should_delete then
                             state.cleanup_session_id = nil
                         end
-                        write_world_index_sidecar(index, state, function()
+                        write_world_index_sidecar(index, state, function(final_sidecar_saved)
+                            if not final_sidecar_saved then
+                                if should_delete then
+                                    state.cleanup_session_id = cleanup_session_id
+                                end
+                                cb(false)
+                                return
+                            end
+                            if should_delete then
+                                delete_session_if_not_home(cleanup_session_id, target.session_id)
+                            end
                             cb(true)
                         end)
                     end, nil, target.player_positions)
                 else
-                    if should_cleanup_world_index_session(state) and
-                        cleanup_session_id ~= nil and cleanup_session_id ~= "" and cleanup_session_id ~= target.session_id then
-                        delete_session_if_not_home(cleanup_session_id, target.session_id)
+                    local should_delete = should_cleanup_world_index_session(state) and
+                        cleanup_session_id ~= nil and cleanup_session_id ~= "" and cleanup_session_id ~= target.session_id
+                    if should_delete then
                         state.cleanup_session_id = nil
-                        write_world_index_sidecar(index, state, function()
+                        write_world_index_sidecar(index, state, function(final_sidecar_saved)
+                            if not final_sidecar_saved then
+                                state.cleanup_session_id = cleanup_session_id
+                                cb(false)
+                                return
+                            end
+                            delete_session_if_not_home(cleanup_session_id, target.session_id)
                             cb(true)
                         end)
                         return
@@ -2413,7 +2700,13 @@ local function commit_world_index_existing_target(index, state, target, cb)
     end
 
     if target.worldgenoverride ~= nil then
-        restore_worldgenoverride(index, target.worldgenoverride, save_target)
+        restore_worldgenoverride(index, target.worldgenoverride, function(success)
+            if success then
+                save_target()
+            else
+                cb(false)
+            end
+        end)
     else
         save_target()
     end
@@ -2496,7 +2789,13 @@ local function commit_world_index_generated_target(index, state, target, keep_se
                     existing_state.current_session_id = nil
                     existing_state.active = false
                     existing_state.world_type = actual_world_type or existing_state.world_type
-                    write_world_index_sidecar(index, existing_state, generate_target, file_id)
+                    write_world_index_sidecar(index, existing_state, function(saved)
+                        if saved then
+                            generate_target()
+                        else
+                            cb(false)
+                        end
+                    end, file_id)
                 end)
             end, file_id)
         end
@@ -2557,7 +2856,11 @@ local function commit_world_index_generated_target(index, state, target, keep_se
     switch_index_to_generated_world(index, level, keep_session ~= false)
 
     local worldgenoverride = build_level_worldgenoverride_raw(level)
-    write_worldgenoverride_str(index, worldgenoverride, function()
+    write_worldgenoverride_str(index, worldgenoverride, function(worldgenoverride_saved)
+        if not worldgenoverride_saved then
+            cb(false)
+            return
+        end
         state.generated = true
         state.generated_target = normalize_world_index_target(target)
         state.world_type = level_world_type
@@ -2565,9 +2868,13 @@ local function commit_world_index_generated_target(index, state, target, keep_se
         state.current_world = deepcopy_safe(index.world)
         state.current_server = deepcopy_safe(index.server)
         state.current_enabled_mods = deepcopy_safe(index.enabled_mods)
-        write_world_index_sidecar(index, state, function()
-            index:Save(function()
-                cb(true)
+        write_world_index_sidecar(index, state, function(sidecar_saved)
+            if not sidecar_saved then
+                cb(false)
+                return
+            end
+            save_index(index, function(index_saved)
+                cb(index_saved == true)
             end)
         end)
     end)
@@ -2594,9 +2901,20 @@ local function load_world_index_sidecar_state(index, state, cb)
     cb = cb or noop
     ensure_world_index_home_aliases(state)
 
-    if state == nil or not state.active then
+    if state == nil then
         set_world_index_state(index, state)
-        cb()
+        cb(true)
+        return
+    end
+
+    if not state.active then
+        set_world_index_state(index, state)
+        if type(state.return_pending) == "table" and type(state.parent_world_index_state) == "table" then
+            print("[Shard World Index] Restoring parent world index after interrupted adventure return.")
+            restore_parent_world_index(index, state, cb)
+        else
+            cb(true)
+        end
         return
     end
 
@@ -2701,41 +3019,60 @@ local function load_world_index_sidecar_state(index, state, cb)
     clear_world_index_sidecar(index, cb)
 end
 
-local function read_named_world_index_sidecar_in_slot(slot, file_id)
+local function read_named_world_index_sidecar_in_slot(slot, file_id, cb)
+    cb = cb or noop
     if slot == nil or TheSim == nil then
-        return nil, false
+        cb(nil, false)
+        return
     end
 
     file_id = normalize_world_index_file_id(file_id)
     local filename = "shardindex_"..file_id
-    local state = nil
-    local found = false
     TheSim:GetPersistentStringInClusterSlot(slot, "Master", filename, function(load_success, str)
         if load_success and str ~= nil and #str > 0 then
-            found = true
             local success, data = RunInSandboxSafe(str)
             if success and type(data) == "table" then
                 data.file_id = normalize_world_index_file_id(data.file_id or file_id)
-                state = ensure_world_index_home_aliases(data)
+                cb(ensure_world_index_home_aliases(data), true)
+                return
             end
+            cb(nil, true)
+            return
         end
+        cb(nil, false)
     end)
-    return state, found
 end
 
-local function read_world_index_sidecar_in_slot(slot)
+local function read_world_index_sidecar_in_slot(slot, cb)
+    cb = cb or noop
     local ids = get_known_world_index_file_ids(nil)
-    for _, file_id in ipairs(ids) do
-        local state = read_named_world_index_sidecar_in_slot(slot, file_id)
-        if world_index_state_reserves_slot(state) then
-            return state
+    local i = 1
+
+    local function read_next()
+        if i > #ids then
+            cb(nil)
+            return
         end
+
+        local file_id = ids[i]
+        i = i + 1
+        read_named_world_index_sidecar_in_slot(slot, file_id, function(state)
+            if world_index_state_reserves_slot(state) then
+                cb(state)
+                return
+            end
+            read_next()
+        end)
     end
+
+    read_next()
 end
 
-local function read_active_world_index_sidecar(slot)
-    local state = read_world_index_sidecar_in_slot(slot)
-    return world_index_state_reserves_slot(state) and state or nil
+local function read_active_world_index_sidecar(slot, cb)
+    cb = cb or noop
+    read_world_index_sidecar_in_slot(slot, function(state)
+        cb(world_index_state_reserves_slot(state) and state or nil)
+    end)
 end
 
 function ShardWorldIndex:Noop()
@@ -2844,6 +3181,18 @@ end
 
 function ShardWorldIndex:RequestSecondaryWorldIndex(name, data, cb, timeout)
     return request_secondary_world_index(name, data, cb, timeout)
+end
+
+function ShardWorldIndex:CommitSecondaryWorldIndex(request, cb, timeout)
+    return commit_secondary_world_index_request(request, cb, timeout)
+end
+
+function ShardWorldIndex:AbortSecondaryWorldIndex(request)
+    abort_secondary_world_index_request(request)
+end
+
+function ShardWorldIndex:IsSecondaryWorldIndexRequestPending()
+    return pending_secondary_world_index_request ~= nil or next(prepared_secondary_world_index_requests) ~= nil
 end
 
 function ShardWorldIndex:HandleSecondaryWorldIndexReply(shardid, data)
@@ -2963,19 +3312,20 @@ function ShardWorldIndex:PreservePendingGenerationOnDelete(index, save_options, 
         end
 
         index:MarkDirty()
-        index:Save(function(...)
-            local args = { ... }
+        save_index(index, function(index_saved)
             index.world = staged_world or { options = {} }
             index.server = staged_server or {}
             index.enabled_mods = staged_enabled_mods or {}
             index.session_id = staged_session_id
             index:MarkDirty()
             set_world_index_state(index, state)
-            write_world_index_sidecar(index, state, function()
+            if not index_saved then
                 if cb ~= nil then
-                    cb(unpack(args))
+                    cb(false)
                 end
-            end)
+                return
+            end
+            write_world_index_sidecar(index, state, cb)
         end)
         return true
     end
@@ -3046,9 +3396,21 @@ function ShardWorldIndex:BeginWorldIndex(index, opts, cb)
     if active_state ~= nil and active_state.active == true then
         if opts.kind == "adventure" and active_state.kind ~= "adventure" then
             print("[Shard World Index] Suspending normal world index before adventure.")
-            suspend_current_world_index_for_adventure(index, active_state, function(parent_state)
+            suspend_current_world_index_for_adventure(index, active_state, function(parent_state, suspended)
+                if not suspended then
+                    cb(false)
+                    return
+                end
                 opts = attach_parent_world_index_for_adventure(opts, parent_state)
-                self:BeginWorldIndex(index, opts, cb)
+                self:BeginWorldIndex(index, opts, function(success)
+                    if success then
+                        cb(true)
+                    else
+                        resume_suspended_world_index(index, parent_state, function()
+                            cb(false)
+                        end)
+                    end
+                end)
             end)
             return
         end
@@ -3216,7 +3578,11 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
             parked_state.pending_generation = nil
             parked_state.checked_existing_world = nil
             parked_state.updated_at = os.time()
-            write_world_index_sidecar(index, parked_state, function()
+            write_world_index_sidecar(index, parked_state, function(parked_saved)
+                if not parked_saved then
+                    cb(false, pending_chapter)
+                    return
+                end
                 set_world_index_state(index, parked_state, current_file_id)
                 set_world_index_state(index, state, queued_file_id)
                 cb(true, pending_chapter)
@@ -3267,12 +3633,24 @@ function ShardWorldIndex:QueueNextWorld(index, opts, cb)
                 state.player_positions = deepcopy_safe(existing_state.player_positions)
             end
 
-            write_world_index_sidecar(index, state, commit_queued_state)
+            write_world_index_sidecar(index, state, function(saved)
+                if saved then
+                    commit_queued_state()
+                else
+                    finish_commit(false)
+                end
+            end)
         end, queued_file_id)
         return
     end
 
-    write_world_index_sidecar(index, state, commit_queued_state)
+    write_world_index_sidecar(index, state, function(saved)
+        if saved then
+            commit_queued_state()
+        else
+            finish_commit(false)
+        end
+    end)
 end
 
 function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions, opts)
@@ -3288,55 +3666,592 @@ function ShardWorldIndex:ReturnToStoredWorld(index, reason, cb, player_sessions,
         return
     end
 
-    local player_positions = get_player_positions(player_sessions or state.return_player_sessions)
+    local current_index =
+    {
+        session_id = index:GetSession(),
+        world = deepcopy_safe(index.world),
+        server = deepcopy_safe(index.server),
+        enabled_mods = deepcopy_safe(index.enabled_mods),
+    }
+    local current_worldgenoverride = state.current_worldgenoverride
+    local cleanup_session_id = should_cleanup_world_index_session(state) and state.current_session_id or nil
+    local sessions = player_sessions or state.return_player_sessions
+
+    local player_positions = get_player_positions(sessions)
     if player_positions ~= nil then
         set_player_positions_for_session(state, index:GetSession(), player_positions)
     end
 
-    if should_cleanup_world_index_session(state) then
-        delete_session_if_not_home(state.current_session_id, home.session_id)
+    state.return_player_sessions = deepcopy_safe(sessions)
+    state.return_pending =
+    {
+        reason = reason or "return",
+        cleanup_session_id = cleanup_session_id,
+        parent_world_index_file_id = type(state.parent_world_index_state) == "table" and
+            state.parent_world_index_state.file_id or nil,
+        started_at = os.time(),
+    }
+    state.updated_at = os.time()
+
+    local function restore_current_index(done)
+        index.session_id = current_index.session_id
+        index.world = current_index.world or { options = {} }
+        index.server = current_index.server or {}
+        index.enabled_mods = current_index.enabled_mods or {}
+        index:MarkDirty()
+        restore_worldgenoverride(index, current_worldgenoverride, function()
+            save_index(index, function()
+                set_world_index_state(index, state)
+                done(false)
+            end)
+        end)
     end
 
-    switch_index_to_existing_world(index, home)
-    state.active = false
-    state.finished_at = os.time()
-    state.return_reason = reason or "return"
+    local function commit_return()
+        local finished_state = deepcopy_safe(state)
+        finished_state.active = false
+        finished_state.finished_at = os.time()
+        finished_state.return_reason = reason or "return"
+        finished_state.return_player_sessions = nil
+        if opts.defer_cleanup and cleanup_session_id ~= nil and cleanup_session_id ~= "" then
+            finished_state.deferred_cleanup_session_id = cleanup_session_id
+        end
+        if opts.defer_cleanup or opts.defer_parent_restore then
+            finished_state.deferred_return = true
+        end
+        if type(finished_state.parent_world_index_state) ~= "table" then
+            finished_state.return_pending = nil
+        end
 
-    local function save_return_state()
-        restore_worldgenoverride(index, home.worldgenoverride, function()
-            index:Save(function()
-                write_world_index_sidecar(index, state, function()
-                    set_world_index_state(index, state)
+        switch_index_to_existing_world(index, home)
+        restore_worldgenoverride(index, home.worldgenoverride, function(worldgenoverride_saved)
+            if not worldgenoverride_saved then
+                restore_current_index(cb)
+                return
+            end
+            save_index(index, function(index_saved)
+                if not index_saved then
+                    restore_current_index(cb)
+                    return
+                end
+                write_world_index_sidecar(index, finished_state, function(sidecar_saved)
+                    if not sidecar_saved then
+                        restore_current_index(cb)
+                        return
+                    end
+                    set_world_index_state(index, finished_state)
+                    if not opts.defer_cleanup and cleanup_session_id ~= nil and cleanup_session_id ~= "" then
+                        delete_session_if_not_home(cleanup_session_id, home.session_id)
+                    end
                     cb(true)
                 end)
             end)
         end)
     end
 
-    local sessions = player_sessions or state.return_player_sessions
-    if sessions ~= nil and #sessions > 0 and TheNet ~= nil and TheNet:GetIsServer() then
-        local return_player_positions = home.player_positions
-        if opts.ignore_saved_positions then
-            return_player_positions = nil
+    write_world_index_sidecar(index, state, function(pending_saved)
+        if not pending_saved then
+            state.return_pending = nil
+            cb(false)
+            return
         end
-        inject_player_sessions_into_existing_world(index, home.session_id, sessions, function()
-            state.return_player_sessions = nil
-            state.last_player_session_injected = home.session_id
-            save_return_state()
-        end, home.return_position, return_player_positions, opts.spawn_prefab)
+
+        if sessions ~= nil and #sessions > 0 and TheNet ~= nil and TheNet:GetIsServer() then
+            local return_player_positions = home.player_positions
+            if opts.ignore_saved_positions then
+                return_player_positions = nil
+            end
+            inject_player_sessions_into_existing_world(index, home.session_id, sessions, function()
+                state.return_player_sessions = nil
+                state.last_player_session_injected = home.session_id
+                commit_return()
+            end, home.return_position, return_player_positions, opts.spawn_prefab)
+            return
+        end
+
+        commit_return()
+    end)
+end
+
+local function finalize_deferred_return(index, state, cb)
+    cb = cb or noop
+    if state == nil or state.active or state.deferred_return ~= true then
+        cb(false)
         return
     end
 
-    save_return_state()
+    local cleanup_session_id = state.deferred_cleanup_session_id
+    local function finish()
+        state.deferred_return = nil
+        state.deferred_cleanup_session_id = nil
+        write_world_index_sidecar(index, state, function(saved)
+            if not saved then
+                state.deferred_return = true
+                state.deferred_cleanup_session_id = cleanup_session_id
+                cb(false)
+                return
+            end
+            set_world_index_state(index, state, state.file_id)
+            local home = get_world_index_home_state(state)
+            if cleanup_session_id ~= nil and cleanup_session_id ~= "" and home ~= nil then
+                delete_session_if_not_home(cleanup_session_id, home.session_id)
+            end
+            cb(true)
+        end, state.file_id)
+    end
+
+    if type(state.parent_world_index_state) == "table" then
+        restore_parent_world_index(index, state, function(parent_restored)
+            if parent_restored then
+                finish()
+            else
+                cb(false)
+            end
+        end)
+    else
+        finish()
+    end
 end
 
-function ShardWorldIndex:StartWorldIndex(index, opts)
-    index, opts = resolve_index_args(self, index, opts)
+local function rollback_deferred_return(index, state, cb)
+    cb = cb or noop
+    if state == nil or state.active or state.deferred_return ~= true or not switch_index_to_current_world(index, state) then
+        cb(false)
+        return
+    end
+
+    state.active = true
+    state.finished_at = nil
+    state.return_reason = nil
+    state.return_pending = nil
+    state.deferred_return = nil
+    state.deferred_cleanup_session_id = nil
+    state.updated_at = os.time()
+    restore_worldgenoverride(index, state.current_worldgenoverride, function(worldgenoverride_saved)
+        if not worldgenoverride_saved then
+            cb(false)
+            return
+        end
+        save_index(index, function(index_saved)
+            if not index_saved then
+                cb(false)
+                return
+            end
+            write_world_index_sidecar(index, state, function(sidecar_saved)
+                if sidecar_saved then
+                    set_world_index_state(index, state, state.file_id)
+                end
+                cb(sidecar_saved == true)
+            end, state.file_id)
+        end)
+    end)
+end
+
+function ShardWorldIndex:FinalizeDeferredReturn(index, state, cb)
+    index, state, cb = resolve_index_args(self, index, state, cb)
+    finalize_deferred_return(index, state, cb)
+end
+
+function ShardWorldIndex:RollbackDeferredReturn(index, state, cb)
+    index, state, cb = resolve_index_args(self, index, state, cb)
+    rollback_deferred_return(index, state, cb)
+end
+
+local function get_secondary_transition_target(index, operation, opts, active_state)
+    local target = nil
+    local file_id = nil
+
+    if operation == "BeginSecondaryAdventure" then
+        local chapter = math.floor(tonumber(opts.chapter) or 1)
+        local level = type(opts.level_sequence) == "table" and opts.level_sequence[chapter] or nil
+        target = normalize_world_index_target({
+            type = "generated",
+            level = get_level_for_shard(level, get_index_shard(index)),
+            world_type = "adventure",
+            cleanup_on_return = true,
+        })
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID
+    elseif operation == "AdvanceSecondaryAdventure" then
+        local adventure_state = get_world_index_state(index, ADVENTURE_WORLD_INDEX_FILE_ID)
+        local chapter = math.floor(tonumber(opts.chapter) or ((adventure_state ~= nil and adventure_state.chapter or 0) + 1))
+        local level = adventure_state ~= nil and type(adventure_state.level_sequence) == "table" and
+            adventure_state.level_sequence[chapter] or nil
+        target = normalize_world_index_target({
+            type = "generated",
+            level = get_level_for_shard(level, get_index_shard(index)),
+            world_type = "adventure",
+            cleanup_on_return = true,
+        })
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID
+    elseif operation == "ReturnSecondaryAdventure" then
+        file_id = ADVENTURE_WORLD_INDEX_FILE_ID
+    elseif operation == "BeginSecondaryWorldIndex" or operation == "AdvanceSecondaryWorldIndex" then
+        target = get_world_index_target_for_shard(get_world_index_target_from_opts(opts, active_state), get_index_shard(index))
+        file_id = get_world_index_target_file_id(target, active_state ~= nil and active_state.file_id or opts.file_id,
+            get_index_shard(index))
+    elseif operation == "ReturnSecondaryWorldIndex" then
+        file_id = active_state ~= nil and active_state.file_id or opts.file_id
+    end
+
+    return target, normalize_world_index_file_id(file_id)
+end
+
+local function validate_secondary_transition(index, operation, opts, active_state, target)
+    local is_begin = operation == "BeginSecondaryWorldIndex" or operation == "BeginSecondaryAdventure"
+    local is_adventure_begin = operation == "BeginSecondaryAdventure"
+    if is_begin then
+        if index:GetSession() == nil or index:GetSession() == "" then
+            return false, "missing home session"
+        end
+        if active_state ~= nil and active_state.active and not (is_adventure_begin and active_state.kind ~= "adventure") then
+            return false, "world index already active"
+        end
+    elseif active_state == nil or not active_state.active then
+        return false, "world index is not active"
+    end
+
+    local needs_target = operation ~= "ReturnSecondaryWorldIndex" and operation ~= "ReturnSecondaryAdventure"
+    if needs_target and target == nil then
+        return false, "missing target world"
+    end
+    if target ~= nil and target.type == "generated" then
+        local level = get_world_index_generated_level(target, get_index_shard(index))
+        local valid, reason = validate_world_index_generated_level(level)
+        if not valid then
+            return false, reason
+        end
+    elseif target ~= nil and target.type == "existing" and normalize_world_index_existing_target(index, target) == nil then
+        return false, "missing existing target session"
+    end
+
+    return true
+end
+
+local function prepare_secondary_transition(index, operation, opts, cb)
+    cb = cb or noop
+    opts = deepcopy_safe(opts) or {}
+    local request_id = opts.request_id
+    if type(request_id) ~= "string" or request_id == "" then
+        cb(false)
+        return
+    end
+
+    local active_state = get_world_index_state(index)
+    local target, file_id = get_secondary_transition_target(index, operation, opts, active_state)
+    local valid, reason = validate_secondary_transition(index, operation, opts, active_state, target)
+    if not valid then
+        print("[Shard World Index] Cannot prepare "..tostring(operation)..": "..tostring(reason)..".")
+        cb(false)
+        return
+    end
+
+    read_named_world_index_sidecar(index, file_id, function(target_state)
+        local existing = target_state ~= nil and target_state.secondary_transition or nil
+        if type(existing) == "table" then
+            cb(existing.request_id == request_id and existing.operation == operation, file_id)
+            return
+        end
+
+        read_worldgenoverride_raw(index, function(worldgenoverride)
+            local transaction =
+            {
+                request_id = request_id,
+                operation = operation,
+                status = "prepared",
+                file_id = file_id,
+                opts = opts,
+                original_state = deepcopy_safe(active_state),
+                original_state_file_id = active_state ~= nil and active_state.file_id or nil,
+                original_target_state = deepcopy_safe(target_state),
+                original_index =
+                {
+                    session_id = index:GetSession(),
+                    world = deepcopy_safe(index.world),
+                    server = deepcopy_safe(index.server),
+                    enabled_mods = deepcopy_safe(index.enabled_mods),
+                },
+                original_worldgenoverride = worldgenoverride,
+                prepared_at = os.time(),
+            }
+            local marker = deepcopy_safe(target_state) or
+            {
+                active = false,
+                kind = opts.kind or (operation:find("Adventure") ~= nil and "adventure" or "world_index"),
+                file_id = file_id,
+                secondary = true,
+                slot = index:GetSlot(),
+                shard = get_index_shard(index),
+            }
+            marker.secondary_transition = transaction
+            marker.updated_at = os.time()
+            write_world_index_sidecar(index, marker, function(saved)
+                if saved then
+                    set_world_index_state(index, marker, file_id)
+                end
+                cb(saved == true, file_id)
+            end, file_id)
+        end)
+    end)
+end
+
+local function find_secondary_transition(index, request_id, file_id, cb)
+    cb = cb or noop
+    local function check_state(state)
+        local transaction = state ~= nil and state.secondary_transition or nil
+        if type(transaction) == "table" and transaction.request_id == request_id then
+            cb(state, transaction)
+        else
+            cb(nil, nil)
+        end
+    end
+
+    if file_id ~= nil then
+        local state = get_world_index_state(index, file_id)
+        if state ~= nil and type(state.secondary_transition) == "table" and
+            state.secondary_transition.request_id == request_id then
+            check_state(state)
+        else
+            read_named_world_index_sidecar(index, file_id, check_state)
+        end
+        return
+    end
+
+    local ids = get_known_world_index_file_ids(index)
+    local i = 1
+    local function read_next()
+        if i > #ids then
+            cb(nil, nil)
+            return
+        end
+        local current_file_id = ids[i]
+        i = i + 1
+        read_named_world_index_sidecar(index, current_file_id, function(state)
+            local transaction = state ~= nil and state.secondary_transition or nil
+            if type(transaction) == "table" and transaction.request_id == request_id then
+                cb(state, transaction)
+            else
+                read_next()
+            end
+        end)
+    end
+    read_next()
+end
+
+local function restore_secondary_transition(index, state, transaction, cb)
+    cb = cb or noop
+    if transaction == nil then
+        cb(true)
+        return
+    end
+
+    local original_index = transaction.original_index or {}
+    index.session_id = original_index.session_id
+    index.world = deepcopy_safe(original_index.world) or { options = {} }
+    index.server = deepcopy_safe(original_index.server) or {}
+    index.enabled_mods = deepcopy_safe(original_index.enabled_mods) or {}
+    index:MarkDirty()
+
+    local function restore_original_sidecars()
+        write_world_index_sidecar(index, transaction.original_target_state, function(target_restored)
+            if not target_restored then
+                cb(false)
+                return
+            end
+            set_world_index_state(index, transaction.original_target_state, transaction.file_id)
+
+            local original_file_id = transaction.original_state_file_id
+            if original_file_id == nil or normalize_world_index_file_id(original_file_id) == transaction.file_id then
+                cb(true)
+                return
+            end
+            write_world_index_sidecar(index, transaction.original_state, function(state_restored)
+                if state_restored then
+                    set_world_index_state(index, transaction.original_state, original_file_id)
+                end
+                cb(state_restored == true)
+            end, original_file_id)
+        end, transaction.file_id)
+    end
+
+    restore_worldgenoverride(index, transaction.original_worldgenoverride, function(worldgenoverride_restored)
+        if not worldgenoverride_restored then
+            cb(false)
+            return
+        end
+        save_index(index, function(index_restored)
+            if not index_restored then
+                cb(false)
+                return
+            end
+            restore_original_sidecars()
+        end)
+    end)
+end
+
+local function dispatch_secondary_transition(index, operation, opts, transaction, cb)
+    opts.secondary_transition = deepcopy_safe(transaction)
+    if operation == "BeginSecondaryAdventure" then
+        index.adventure:BeginSecondary(opts, cb)
+    elseif operation == "AdvanceSecondaryAdventure" then
+        index.adventure:AdvanceSecondary(opts, cb)
+    elseif operation == "ReturnSecondaryAdventure" then
+        index.adventure:ReturnToMainWorld(opts.reason or "return", cb,
+            { defer_cleanup = true, defer_parent_restore = true })
+    elseif operation == "BeginSecondaryWorldIndex" then
+        opts.state = deepcopy_safe(opts.state) or {}
+        opts.state.secondary_transition = deepcopy_safe(transaction)
+        index.worldindex:BeginSecondaryWorldIndex(opts, cb)
+    elseif operation == "AdvanceSecondaryWorldIndex" then
+        index.worldindex:AdvanceSecondaryWorldIndex(opts, cb)
+    elseif operation == "ReturnSecondaryWorldIndex" then
+        index.worldindex:ReturnToStoredWorld(opts.reason or "return", cb, nil, { defer_cleanup = true })
+    else
+        cb(false)
+    end
+end
+
+local function commit_prepared_secondary_transition(index, request_id, file_id, cb)
+    cb = cb or noop
+    find_secondary_transition(index, request_id, file_id, function(marker, transaction)
+        if transaction == nil then
+            cb(false)
+            return
+        end
+        if transaction.status == "committed" then
+            cb(true, transaction.file_id)
+            return
+        end
+
+        transaction.status = "committing"
+        marker.secondary_transition = transaction
+        write_world_index_sidecar(index, marker, function(marked)
+            if not marked then
+                cb(false)
+                return
+            end
+            dispatch_secondary_transition(index, transaction.operation, deepcopy_safe(transaction.opts) or {}, transaction, function(success)
+                if not success then
+                    restore_secondary_transition(index, marker, transaction, function()
+                        cb(false)
+                    end)
+                    return
+                end
+
+                local result_state = get_world_index_state(index, transaction.file_id)
+                if result_state == nil then
+                    restore_secondary_transition(index, marker, transaction, function()
+                        cb(false)
+                    end)
+                    return
+                end
+                transaction.status = "committed"
+                transaction.committed_at = os.time()
+                result_state.secondary_transition = transaction
+                write_world_index_sidecar(index, result_state, function(saved)
+                    if not saved then
+                        restore_secondary_transition(index, result_state, transaction, function()
+                            cb(false)
+                        end)
+                        return
+                    end
+                    set_world_index_state(index, result_state, transaction.file_id)
+                    cb(true, transaction.file_id)
+                end, transaction.file_id)
+            end)
+        end, transaction.file_id)
+    end)
+end
+
+local function abort_prepared_secondary_transition(index, request_id, file_id, cb)
+    cb = cb or noop
+    find_secondary_transition(index, request_id, file_id, function(state, transaction)
+        if transaction == nil then
+            cb(true)
+            return
+        end
+        restore_secondary_transition(index, state, transaction, cb)
+    end)
+end
+
+local function finalize_secondary_transition(index, request_id, file_id, cb)
+    cb = cb or noop
+    find_secondary_transition(index, request_id, file_id, function(state, transaction)
+        if transaction == nil then
+            cb(true, false)
+            return
+        end
+        if transaction.status ~= "committed" then
+            cb(false, false)
+            return
+        end
+
+        local cleanup_session_id = state.deferred_cleanup_session_id
+        local deferred_return = state.deferred_return
+        local function finish_finalize()
+            state.deferred_return = nil
+            state.deferred_cleanup_session_id = nil
+            state.secondary_transition = nil
+            write_world_index_sidecar(index, state, function(saved)
+                if not saved then
+                    state.deferred_return = deferred_return
+                    state.deferred_cleanup_session_id = cleanup_session_id
+                    state.secondary_transition = transaction
+                    cb(false, true)
+                    return
+                end
+                set_world_index_state(index, state, transaction.file_id)
+                local home = get_world_index_home_state(state)
+                if cleanup_session_id ~= nil and cleanup_session_id ~= "" and home ~= nil then
+                    delete_session_if_not_home(cleanup_session_id, home.session_id)
+                end
+                cb(true, true)
+            end, transaction.file_id)
+        end
+
+        if not state.active and type(state.parent_world_index_state) == "table" then
+            restore_parent_world_index(index, state, function(parent_restored)
+                if parent_restored then
+                    finish_finalize()
+                else
+                    cb(false, true)
+                end
+            end)
+        else
+            finish_finalize()
+        end
+    end)
+end
+
+function ShardWorldIndex:PrepareSecondaryTransition(index, operation, opts, cb)
+    index, operation, opts, cb = resolve_index_args(self, index, operation, opts, cb)
+    prepare_secondary_transition(index, operation, opts, cb)
+end
+
+function ShardWorldIndex:CommitPreparedSecondaryTransition(index, request_id, file_id, cb)
+    index, request_id, file_id, cb = resolve_index_args(self, index, request_id, file_id, cb)
+    commit_prepared_secondary_transition(index, request_id, file_id, cb)
+end
+
+function ShardWorldIndex:AbortPreparedSecondaryTransition(index, request_id, file_id, cb)
+    index, request_id, file_id, cb = resolve_index_args(self, index, request_id, file_id, cb)
+    abort_prepared_secondary_transition(index, request_id, file_id, cb)
+end
+
+function ShardWorldIndex:FinalizeSecondaryTransition(index, request_id, file_id, cb)
+    index, request_id, file_id, cb = resolve_index_args(self, index, request_id, file_id, cb)
+    finalize_secondary_transition(index, request_id, file_id, cb)
+end
+
+function ShardWorldIndex:StartWorldIndex(index, opts, cb)
+    index, opts, cb = resolve_index_args(self, index, opts, cb)
+    cb = cb or noop
     if index == nil then
+        cb(false)
         return false
     end
     if TheShard ~= nil and not is_master_shard() then
         print("[Shard World Index] StartWorldIndex must be called on the master shard.")
+        cb(false)
         return false
     end
 
@@ -3346,6 +4261,7 @@ function ShardWorldIndex:StartWorldIndex(index, opts)
     if target ~= nil and
         (reject_unavailable_world_target(index, target, opts.kind) or
         reject_current_world_target(index, target, opts.kind)) then
+        cb(false)
         return false
     end
 
@@ -3362,20 +4278,29 @@ function ShardWorldIndex:StartWorldIndex(index, opts)
             keep_session = opts.keep_session,
             collect_player_sessions = false,
             fallback_player_sessions = false,
-        }, function(secondary_ready)
+        }, function(secondary_ready, request)
             if not secondary_ready then
                 print("[Shard World Index] Secondary shards did not prepare the target; Master will not change worlds.")
+                cb(false)
                 return
             end
 
             self:BeginWorldIndex(index, opts, function(success)
-                if success then
-                    restart_current_slot_after_shard_rpc(index,
-                    {
-                        world_index_transition = opts.reason or "begin",
-                        world_index_file_id = get_world_index_state(index) ~= nil and get_world_index_state(index).file_id or opts.file_id,
-                    })
+                if not success then
+                    abort_secondary_world_index_request(request)
+                    cb(false)
+                    return
                 end
+                commit_secondary_world_index_request(request, function(committed)
+                    if committed then
+                        restart_current_slot_after_shard_rpc(index,
+                        {
+                            world_index_transition = opts.reason or "begin",
+                            world_index_file_id = get_world_index_state(index) ~= nil and get_world_index_state(index).file_id or opts.file_id,
+                        })
+                    end
+                    cb(committed == true)
+                end, opts.secondary_shard_wait_timeout or nil)
             end)
         end)
     end
@@ -3384,7 +4309,11 @@ function ShardWorldIndex:StartWorldIndex(index, opts)
         if opts.force_players_to_master_modname ~= nil then
             send_force_players_to_master_rpc(opts.force_players_to_master_modname, opts.force_players_to_master_rpcname)
         end
-        wait_for_secondary_shard_players_empty(function()
+        wait_for_secondary_shard_players_empty(function(players_ready)
+            if not players_ready then
+                cb(false)
+                return
+            end
             index:SaveCurrent(begin_after_save)
         end, opts.secondary_shard_wait_timeout or nil, opts.secondary_shard_wait_poll_interval or nil)
     else
@@ -3394,13 +4323,16 @@ function ShardWorldIndex:StartWorldIndex(index, opts)
     return true
 end
 
-function ShardWorldIndex:AdvanceWorldIndex(index, opts)
-    index, opts = resolve_index_args(self, index, opts)
+function ShardWorldIndex:AdvanceWorldIndex(index, opts, cb)
+    index, opts, cb = resolve_index_args(self, index, opts, cb)
+    cb = cb or noop
     if index == nil or not self:IsActive(index) then
+        cb(false)
         return false
     end
     if TheShard ~= nil and not is_master_shard() then
         print("[Shard World Index] AdvanceWorldIndex must be called on the master shard.")
+        cb(false)
         return false
     end
 
@@ -3414,6 +4346,7 @@ function ShardWorldIndex:AdvanceWorldIndex(index, opts)
     if target ~= nil and
         (reject_unavailable_world_target(index, target, state.kind) or
         reject_current_world_target(index, target, state.kind)) then
+        cb(false)
         return false
     end
 
@@ -3426,26 +4359,39 @@ function ShardWorldIndex:AdvanceWorldIndex(index, opts)
             reuse_existing = opts.reuse_existing,
             keep_session = opts.keep_session,
             collect_player_sessions = false,
-        }, function(secondary_ready)
+        }, function(secondary_ready, request)
             if not secondary_ready then
                 print("[Shard World Index] Secondary shards did not prepare the target; Master will not change worlds.")
+                cb(false)
                 return
             end
 
             self:QueueNextWorld(index, opts, function(success)
-                if success then
-                    restart_current_slot_after_shard_rpc(index,
-                    {
-                        world_index_transition = opts.reason or "advance",
-                        world_index_file_id = get_world_index_state(index) ~= nil and get_world_index_state(index).file_id or opts.file_id,
-                    })
+                if not success then
+                    abort_secondary_world_index_request(request)
+                    cb(false)
+                    return
                 end
+                commit_secondary_world_index_request(request, function(committed)
+                    if committed then
+                        restart_current_slot_after_shard_rpc(index,
+                        {
+                            world_index_transition = opts.reason or "advance",
+                            world_index_file_id = get_world_index_state(index) ~= nil and get_world_index_state(index).file_id or opts.file_id,
+                        })
+                    end
+                    cb(committed == true)
+                end, opts.secondary_shard_wait_timeout or nil)
             end)
         end)
     end
 
     if TheWorld ~= nil and TheWorld.ismastersim then
-        wait_for_secondary_shard_players_empty(function()
+        wait_for_secondary_shard_players_empty(function(players_ready)
+            if not players_ready then
+                cb(false)
+                return
+            end
             save_players()
             advance_after_save()
         end, opts.secondary_shard_wait_timeout or nil, opts.secondary_shard_wait_poll_interval or nil)
@@ -3456,9 +4402,11 @@ function ShardWorldIndex:AdvanceWorldIndex(index, opts)
     return true
 end
 
-function ShardWorldIndex:ReturnFromWorldIndex(index, reason)
-    index, reason = resolve_index_args(self, index, reason)
+function ShardWorldIndex:ReturnFromWorldIndex(index, reason, cb)
+    index, reason, cb = resolve_index_args(self, index, reason, cb)
+    cb = cb or noop
     if index == nil or not self:IsActive(index) then
+        cb(false)
         return false
     end
 
@@ -3467,34 +4415,61 @@ function ShardWorldIndex:ReturnFromWorldIndex(index, reason)
         local player_sessions = collect_player_sessions()
         request_secondary_world_index("ReturnSecondaryWorldIndex", {
             reason = reason or "return",
-        }, function(secondary_ready)
+        }, function(secondary_ready, request)
             if not secondary_ready then
                 print("[Shard World Index] Secondary shards did not prepare the return; Master will not change worlds.")
+                cb(false)
                 return
             end
 
             self:ReturnToStoredWorld(index, reason or "return", function(success)
-                if success then
-                    restart_current_slot_after_shard_rpc(index, { world_index_transition = reason or "return" })
+                if not success then
+                    abort_secondary_world_index_request(request)
+                    cb(false)
+                    return
                 end
-            end, player_sessions)
+                commit_secondary_world_index_request(request, function(committed)
+                    if committed then
+                        finalize_deferred_return(index, get_world_index_state(index), function(finalized)
+                            if not finalized then
+                                print("[Shard World Index] Deferred return cleanup will resume after restart.")
+                            end
+                            restart_current_slot_after_shard_rpc(index, { world_index_transition = reason or "return" })
+                            cb(true)
+                        end)
+                    else
+                        rollback_deferred_return(index, get_world_index_state(index), function()
+                            cb(false)
+                        end)
+                    end
+                end)
+            end, player_sessions, { defer_cleanup = true })
         end)
     end
 
     if TheWorld ~= nil and TheWorld.ismastersim then
-        wait_for_secondary_shard_players_empty(return_after_save)
+        wait_for_secondary_shard_players_empty(function(players_ready)
+            if players_ready then
+                return_after_save()
+            else
+                cb(false)
+            end
+        end)
     else
         return_after_save()
     end
     return true
 end
 
-function ShardWorldIndex:HasActiveSidecar(slot)
-    return read_active_world_index_sidecar(slot) ~= nil
+function ShardWorldIndex:HasActiveSidecar(slot, cb)
+    cb = cb or noop
+    read_active_world_index_sidecar(slot, function(state)
+        cb(state ~= nil)
+    end)
 end
 
-function ShardWorldIndex:ReadActiveSidecar(slot)
-    return read_active_world_index_sidecar(slot)
+function ShardWorldIndex:ReadActiveSidecar(slot, cb)
+    read_active_world_index_sidecar(slot, cb)
 end
 
 function ShardWorldIndex:SwitchIndexToStoredWorld(index, state)

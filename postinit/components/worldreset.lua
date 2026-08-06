@@ -20,10 +20,20 @@ AddComponentPostInit("worldreset", function(self)
             end
 
             adventure_return_pending = true
-            if ShardGameIndex.adventure:ReturnFromShard("death") then
+            local queued = ShardGameIndex.adventure:ReturnFromShard("death", function(success)
+                if not success and adventure_return_pending then
+                    adventure_return_pending = false
+                    WorldReset()
+                end
+            end)
+            if queued then
                 return
             end
-            adventure_return_pending = false
+            if adventure_return_pending then
+                adventure_return_pending = false
+                WorldReset()
+            end
+            return
         end
 
         WorldReset()

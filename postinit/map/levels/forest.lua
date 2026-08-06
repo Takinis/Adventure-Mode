@@ -13,6 +13,7 @@ AddLevelPreInitAny(function(level)
     if not IsSurvivalLevel(level) then
         return
     end
+
     if level.overrides.task_set == "HAMLET_SECONDARY" then
         return
     end

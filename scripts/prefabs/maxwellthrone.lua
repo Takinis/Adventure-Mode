@@ -11,6 +11,7 @@ local prefabs = {
 
 local CUTSCENE_PLAYER_RANGE = 45
 local CUTSCENE_PLAYER_RANGE_SQ = CUTSCENE_PLAYER_RANGE * CUTSCENE_PLAYER_RANGE
+local PUPPET_SYMBOLS = { "foot", "leg" }
 
 local function AddCutscenePlayer(players, seen, player)
     if player == nil or not player:IsValid() then
@@ -83,7 +84,95 @@ local function GetPlayerBuild(doer, character)
     return character
 end
 
-local function GetPuppetRecord(character, build, userid)
+local function GetPuppetSkins(skins)
+    if type(skins) ~= "table" then
+        return nil
+    end
+
+    local normalized =
+    {
+        base = type(skins.base) == "string" and skins.base or "",
+        body = type(skins.body) == "string" and skins.body or "",
+        hand = type(skins.hand) == "string" and skins.hand or "",
+        legs = type(skins.legs) == "string" and skins.legs or "",
+        feet = type(skins.feet) == "string" and skins.feet or "",
+        mode = type(skins.mode) == "string" and skins.mode or "",
+        monkey_curse = type(skins.monkey_curse) == "string" and skins.monkey_curse or "",
+    }
+
+    if normalized.base == "" and
+        normalized.body == "" and
+        normalized.hand == "" and
+        normalized.legs == "" and
+        normalized.feet == "" and
+        normalized.mode == "" and
+        normalized.monkey_curse == "" then
+        return nil
+    end
+
+    normalized.mode = normalized.mode ~= "" and normalized.mode or "normal_skin"
+    return normalized
+end
+
+local function GetPlayerSkins(doer)
+    local skinner = doer ~= nil and doer.components.skinner or nil
+    if skinner == nil then
+        return nil
+    end
+
+    local skins = skinner:GetClothing()
+    skins.mode = skinner:GetSkinMode()
+    skins.monkey_curse = skinner:GetMonkeyCurse()
+    return GetPuppetSkins(skins)
+end
+
+local function GetPuppetSymbolOverrides(symbols)
+    if type(symbols) ~= "table" then
+        return nil
+    end
+
+    local normalized = {}
+    for _, target in ipairs(PUPPET_SYMBOLS) do
+        local data = symbols[target]
+        if type(data) == "table" then
+            local build = type(data.build) == "number" and data.build or
+                type(data.build) == "string" and data.build ~= "" and hash(data.build) or nil
+            local symbol = type(data.symbol) == "number" and data.symbol or
+                type(data.symbol) == "string" and data.symbol ~= "" and hash(data.symbol) or nil
+            if build ~= nil and symbol ~= nil then
+                normalized[target] =
+                {
+                    build = build,
+                    symbol = symbol,
+                    skin = data.skin == true,
+                }
+            end
+        end
+    end
+    return next(normalized) ~= nil and normalized or nil
+end
+
+local function GetPlayerSymbolOverrides(doer)
+    if doer == nil or doer.AnimState == nil then
+        return nil
+    end
+
+    local symbols = {}
+    for _, target in ipairs(PUPPET_SYMBOLS) do
+        local build, symbol = doer.AnimState:GetSymbolOverride(target)
+        if build ~= nil and symbol ~= nil then
+            symbols[target] =
+            {
+                build = build,
+                symbol = symbol,
+                skin = doer.AnimState:IsSkinBuild(build),
+            }
+        end
+    end
+    return GetPuppetSymbolOverrides(symbols)
+end
+
+local function GetPuppetRecord(character, build, userid, skins, symbols)
     character = type(character) == "string" and character ~= "" and character or "waxwell"
     build = type(build) == "string" and build ~= "" and build or character
 
@@ -92,13 +181,15 @@ local function GetPuppetRecord(character, build, userid)
         character = character,
         build = build,
         userid = type(userid) == "string" and userid ~= "" and userid or nil,
+        skins = GetPuppetSkins(skins),
+        symbols = GetPuppetSymbolOverrides(symbols),
     }
 end
 
 local function GetDefaultPuppetRecord()
     local record = ShardGameIndex.adventure:GetMaxwellThronePuppet()
     if record ~= nil then
-        return GetPuppetRecord(record.character, record.build, record.userid)
+        return GetPuppetRecord(record.character, record.build, record.userid, record.skins, record.symbols)
     end
     return GetPuppetRecord("waxwell", "waxwell")
 end
@@ -108,17 +199,10 @@ local function SavePuppetRecord(record)
 end
 
 local function GetPuppetNameOverride(character)
-    if character == "wilson" or
-        character == "woodie" or
-        character == "waxwell" or
-        character == "wolfgang" or
-        character == "wes" then
-        return "male_puppet"
-    elseif character == "willow" or
-        character == "wendy" or
-        character == "wickerbottom" then
+    local gender = GetGenderStrings(character)
+    if gender == "FEMALE" then
         return "fem_puppet"
-    elseif character == "wx78" then
+    elseif gender == "ROBOT" then
         return "robot_puppet"
     end
 
@@ -143,14 +227,14 @@ local function StopPuppetTalking(puppet, remove_talk_components)
     end
 end
 
-local function SetPuppetCharacter(puppet, character, build)
+local function SetPuppetCharacter(puppet, record)
     if puppet.prefab == "maxwellthrone_puppet" then
-        puppet:SetPuppetCharacter(character, build)
+        puppet:SetPuppetCharacter(record)
     end
 end
 
-local function SpawnPuppet(inst, character, build, remove_talk_components)
-    local puppet = character == "waxwell" and SpawnPrefab("maxwellendgame") or SpawnPrefab("maxwellthrone_puppet")
+local function SpawnPuppet(inst, record, remove_talk_components)
+    local puppet = record.character == "waxwell" and SpawnPrefab("maxwellendgame") or SpawnPrefab("maxwellthrone_puppet")
     if puppet == nil then
         puppet = SpawnPrefab("maxwellendgame")
     end
@@ -159,7 +243,7 @@ local function SpawnPuppet(inst, character, build, remove_talk_components)
     end
 
     puppet.persists = false
-    SetPuppetCharacter(puppet, character or "wilson", build)
+    SetPuppetCharacter(puppet, record)
     StopPuppetTalking(puppet, remove_talk_components)
 
     local x, y, z = inst.Transform:GetWorldPosition()
@@ -174,7 +258,13 @@ local function SpawnPuppet(inst, character, build, remove_talk_components)
 end
 
 local function SetThronePuppetState(inst, record)
-    local puppet_record = GetPuppetRecord(record ~= nil and record.character or nil, record ~= nil and record.build or nil, record ~= nil and record.userid or nil)
+    local puppet_record = GetPuppetRecord(
+        record ~= nil and record.character or nil,
+        record ~= nil and record.build or nil,
+        record ~= nil and record.userid or nil,
+        record ~= nil and record.skins or nil,
+        record ~= nil and record.symbols or nil
+    )
     local is_maxwell = puppet_record.character == "waxwell"
 
     inst.isMaxwell = is_maxwell
@@ -189,13 +279,17 @@ local function SetThronePuppetState(inst, record)
         inst.puppet = nil
     end
 
-    inst.puppet = SpawnPuppet(inst, puppet_record.character, puppet_record.build, not is_maxwell)
+    inst.puppet = SpawnPuppet(inst, puppet_record, not is_maxwell)
     if inst.puppet ~= nil then
         inst.puppet.AnimState:PlayAnimation(is_maxwell and "idle_loop" or "throne_loop", true)
     end
 end
 
 local function ApplyPuppetCharacter(inst)
+    if not TheWorld.ismastersim then
+        return
+    end
+
     local character = inst._puppet_character:value()
     if character == nil or character == "" then
         character = "wilson"
@@ -206,12 +300,43 @@ local function ApplyPuppetCharacter(inst)
         build = character
     end
 
-    inst.AnimState:SetBuild(build)
-
-    if TheWorld.ismastersim then
-        inst.components.named:SetName(STRINGS.CHARACTER_NAMES[character] or STRINGS.NAMES[string.upper(character)] or character)
-        inst.components.inspectable.nameoverride = GetPuppetNameOverride(character)
+    local skins = GetPuppetSkins({
+        base = inst._puppet_skin_base:value(),
+        body = inst._puppet_skin_body:value(),
+        hand = inst._puppet_skin_hand:value(),
+        legs = inst._puppet_skin_legs:value(),
+        feet = inst._puppet_skin_feet:value(),
+        mode = inst._puppet_skin_mode:value(),
+        monkey_curse = inst._puppet_monkey_curse:value(),
+    })
+    if skins ~= nil then
+        inst.components.skinner:MakePuppetCopySkinsFromPlayer(
+            character,
+            inst._puppet_userid:value(),
+            skins,
+            skins.monkey_curse,
+            skins.mode,
+            build
+        )
+    else
+        inst.AnimState:SetBuild(build)
     end
+
+    for _, target in ipairs(PUPPET_SYMBOLS) do
+        local data = inst._puppet_symbols[target]
+        local override_build = data.build:value()
+        local override_symbol = data.symbol:value()
+        if override_build ~= 0 and override_symbol ~= 0 then
+            if data.skin:value() then
+                inst.AnimState:OverrideSkinSymbol(target, override_build, override_symbol)
+            else
+                inst.AnimState:OverrideSymbol(target, override_build, override_symbol)
+            end
+        end
+    end
+
+    inst.components.named:SetName(STRINGS.CHARACTER_NAMES[character] or STRINGS.NAMES[string.upper(character)] or character)
+    inst.components.inspectable.nameoverride = GetPuppetNameOverride(character)
 end
 
 local function maxwellthrone_puppet_fn()
@@ -225,8 +350,25 @@ local function maxwellthrone_puppet_fn()
     inst.Transform:SetFourFaced()
 
     inst._puppet_character = net_string(inst.GUID, "maxwellthrone_puppet._puppet_character")
-    inst._puppet_build = net_string(inst.GUID, "maxwellthrone_puppet._puppet_build", "puppetchangedirty")
-
+    inst._puppet_build = net_string(inst.GUID, "maxwellthrone_puppet._puppet_build")
+    inst._puppet_userid = net_string(inst.GUID, "maxwellthrone_puppet._puppet_userid")
+    inst._puppet_skin_base = net_string(inst.GUID, "maxwellthrone_puppet._puppet_skin_base")
+    inst._puppet_skin_body = net_string(inst.GUID, "maxwellthrone_puppet._puppet_skin_body")
+    inst._puppet_skin_hand = net_string(inst.GUID, "maxwellthrone_puppet._puppet_skin_hand")
+    inst._puppet_skin_legs = net_string(inst.GUID, "maxwellthrone_puppet._puppet_skin_legs")
+    inst._puppet_skin_feet = net_string(inst.GUID, "maxwellthrone_puppet._puppet_skin_feet")
+    inst._puppet_skin_mode = net_string(inst.GUID, "maxwellthrone_puppet._puppet_skin_mode")
+    inst._puppet_monkey_curse = net_string(inst.GUID, "maxwellthrone_puppet._puppet_monkey_curse")
+    inst._puppet_symbols = {}
+    for _, target in ipairs(PUPPET_SYMBOLS) do
+        local name = "maxwellthrone_puppet._puppet_"..target
+        inst._puppet_symbols[target] =
+        {
+            build = net_hash(inst.GUID, name.."_build"),
+            symbol = net_hash(inst.GUID, name.."_symbol"),
+            skin = net_bool(inst.GUID, name.."_skin"),
+        }
+    end
     inst.AnimState:SetBank("wilson")
     inst.AnimState:SetBuild("wilson")
     inst.AnimState:PlayAnimation("throne_loop", true)
@@ -237,33 +379,73 @@ local function maxwellthrone_puppet_fn()
 
     inst.entity:SetPristine()
 
-    inst.SetPuppetCharacter = function(inst, character, build)
-        inst._puppet_character:set(character or "wilson")
-        inst._puppet_build:set(build or character or "wilson")
+    inst.SetPuppetCharacter = function(inst, record)
+        record = GetPuppetRecord(record.character, record.build, record.userid, record.skins, record.symbols)
+        local skins = record.skins or {}
+        local symbols = record.symbols or {}
+
+        inst._puppet_character:set(record.character)
+        inst._puppet_build:set(record.build)
+        inst._puppet_userid:set(record.userid or "")
+        inst._puppet_skin_base:set(skins.base or "")
+        inst._puppet_skin_body:set(skins.body or "")
+        inst._puppet_skin_hand:set(skins.hand or "")
+        inst._puppet_skin_legs:set(skins.legs or "")
+        inst._puppet_skin_feet:set(skins.feet or "")
+        inst._puppet_skin_mode:set(skins.mode or "")
+        inst._puppet_monkey_curse:set(skins.monkey_curse or "")
+        for _, target in ipairs(PUPPET_SYMBOLS) do
+            local data = symbols[target]
+            inst._puppet_symbols[target].build:set(data ~= nil and data.build or 0)
+            inst._puppet_symbols[target].symbol:set(data ~= nil and data.symbol or 0)
+            inst._puppet_symbols[target].skin:set(data ~= nil and data.skin or false)
+        end
         ApplyPuppetCharacter(inst)
     end
 
     if not TheWorld.ismastersim then
-        inst:ListenForEvent("puppetchangedirty", ApplyPuppetCharacter)
-        inst:DoTaskInTime(0, ApplyPuppetCharacter)
         return inst
     end
 
     inst.persists = false
     inst:AddComponent("named")
     inst:AddComponent("inspectable")
+    inst:AddComponent("skinner")
+    inst.components.skinner:SetupNonPlayerData()
     ApplyPuppetCharacter(inst)
 
     return inst
 end
 
-local function ReturnToMainWorld()
-    if ShardGameIndex ~= nil and ShardGameIndex.adventure ~= nil and ShardGameIndex.adventure:ReturnFromShard("maxwellthrone") then
-        return
+local function ReturnToMainWorld(inst)
+    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
+        return false
     end
+
+    inst._adventure_return_pending = true
+    return ShardGameIndex.adventure:ReturnFromShard("maxwellthrone", function(success)
+        if success or not inst:IsValid() then
+            return
+        end
+
+        inst._adventure_return_pending = nil
+        inst._endgame_dialog_players = {}
+        ForEachCutscenePlayer(inst, function(player)
+            if player.userid ~= nil and player.userid ~= "" then
+                inst._endgame_dialog_players[player.userid] = false
+            end
+        end)
+        inst._awaiting_endgame_dialog = next(inst._endgame_dialog_players) ~= nil
+        if inst._awaiting_endgame_dialog then
+            SendCutsceneRPCToPlayers(inst, "ShowMaxwellThroneEndGameDialog", inst.GUID, inst._replacement_character)
+        end
+    end)
 end
 
 local function TryReturnToMainWorld(inst)
+    if inst._adventure_return_pending then
+        return false
+    end
     for _, confirmed in pairs(inst._endgame_dialog_players or {}) do
         if not confirmed then
             return false
@@ -272,8 +454,7 @@ local function TryReturnToMainWorld(inst)
 
     inst._awaiting_endgame_dialog = nil
     inst._endgame_dialog_players = nil
-    ReturnToMainWorld()
-    return true
+    return ReturnToMainWorld(inst)
 end
 
 local function ConfirmEndGameDialog(inst, player)
@@ -377,12 +558,18 @@ local function SpawnNewPuppet(inst)
 
     local puppet_to_spawn = inst._replacement_character
     local puppet_build = inst._replacement_build or puppet_to_spawn
-    local puppet_record = GetPuppetRecord(puppet_to_spawn, puppet_build, inst._replacement_userid)
+    local puppet_record = GetPuppetRecord(
+        puppet_to_spawn,
+        puppet_build,
+        inst._replacement_userid,
+        inst._replacement_skins,
+        inst._replacement_symbols
+    )
     local new_is_maxwell = puppet_record.character == "waxwell"
 
     SavePuppetRecord(puppet_record)
 
-    local puppet = SpawnPuppet(inst, puppet_record.character, puppet_record.build, true)
+    local puppet = SpawnPuppet(inst, puppet_record, true)
     inst.puppet = puppet
 
     local pos = inst:GetPosition()
@@ -494,11 +681,15 @@ local function SetUpCutscene(inst, doer, replacement)
     local puppet_record = GetPuppetRecord(
         character,
         replacement.build or GetPlayerBuild(doer, character),
-        replacement.userid or (doer ~= nil and doer.userid or nil)
+        replacement.userid or (doer ~= nil and doer.userid or nil),
+        replacement.skins or GetPlayerSkins(doer),
+        replacement.symbols or GetPlayerSymbolOverrides(doer)
     )
     inst._replacement_character = puppet_record.character
     inst._replacement_build = puppet_record.build
     inst._replacement_userid = puppet_record.userid
+    inst._replacement_skins = puppet_record.skins
+    inst._replacement_symbols = puppet_record.symbols
     inst._maxwellthrone_cutscene_players = BuildCutscenePlayers(inst, doer)
 
     local pt = inst:GetPosition()

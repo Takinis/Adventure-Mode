@@ -18,7 +18,12 @@ local function Adventure(inst)
         end
     end
     TheWorld:DoTaskInTime(5, function()
-        if not ShardGameIndex.adventure:Start() and inst:IsValid() then
+        local function oncomplete(success)
+            if not success and inst:IsValid() then
+                inst._adventure_transitioning = nil
+            end
+        end
+        if not ShardGameIndex.adventure:Start(nil, oncomplete) and inst:IsValid() then
             inst._adventure_transitioning = nil
         end
     end)

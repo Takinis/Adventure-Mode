@@ -21,8 +21,19 @@ end
 
 local function AdvanceShard(world, self, playersessions)
 	self.advancetask = nil
-	self.activating = false
-	ShardGameIndex.adventure:AdvanceShard({ player_sessions = playersessions })
+	ShardGameIndex.adventure:AdvanceShard({ player_sessions = playersessions }, function(success)
+		if success then
+			return
+		end
+		self.activating = false
+		self.confirmedplayers = {}
+		if self.inst.components.activatable ~= nil then
+			self.inst.components.activatable.inactive = true
+		end
+		for _, player in ipairs(AllPlayers or {}) do
+			player.is_teleporting = nil
+		end
+	end)
 end
 
 local TeleportatoTravel = Class(function(self, inst)

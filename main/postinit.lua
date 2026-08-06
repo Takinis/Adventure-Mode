@@ -17,6 +17,7 @@ local components_posts = {
     "worldstate",
     "frograin",
     "worldreset",
+    "skinner",
 }
 
 local stategraphs_posts = {
