@@ -25,8 +25,8 @@ for k, v in pairs(postinit) do
 end
 
 modimport("scripts/map/ad_layouts")
-modimport("scripts/map/ad_tasksets")
 modimport("scripts/map/levels/adventure")
+modimport("scripts/map/ad_tasksets")
 modimport("scripts/map/levels/hamlet_secondary")
 modimport("scripts/map/ad_startlocations")
 
