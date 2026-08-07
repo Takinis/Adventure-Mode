@@ -48,6 +48,7 @@ local maxwell_intro_release_task = nil
 local waiting_popup = nil
 local title_silence_active = false
 local title_silence_owner = nil
+local standalone_presentation_id = nil
 local _Fade = FrontEnd.Fade
 
 local function StartTitleSilence(presentation)
@@ -161,6 +162,14 @@ local function RevealWorld(presentation)
 end
 
 local function AbortPresentation(presentation_id)
+    if queued_presentation ~= nil and queued_presentation.id == presentation_id then
+        queued_presentation = nil
+        if standalone_presentation_id == presentation_id then
+            standalone_presentation_id = nil
+            _Fade(TheFrontEnd, FADE_IN, TITLE_FADE_TIME, nil, nil, nil, TITLE_FADE_TYPE)
+        end
+    end
+
     local presentation = active_presentation
     if presentation == nil or presentation.id ~= presentation_id or
         (presentation.phase ~= "waiting_for_title" and presentation.phase ~= "title" and
@@ -314,17 +323,26 @@ local function ConsumeActivationFade(fe, fade_fn, fade_dir, fade_time, cb, delay
 end
 
 local function StartStandalonePresentation()
-    if queued_presentation == nil or active_presentation ~= nil then
+    if queued_presentation == nil or active_presentation ~= nil or standalone_presentation_id ~= nil then
         return
     end
 
+    local presentation_id = queued_presentation.id
+    standalone_presentation_id = presentation_id
     _Fade(TheFrontEnd, FADE_OUT, TITLE_FADE_TIME, function()
-        StartPresentation({
-            fe = TheFrontEnd,
-            fn = _Fade,
-            time = TITLE_FADE_TIME,
-            fade_type = TITLE_FADE_TYPE,
-        })
+        if standalone_presentation_id ~= presentation_id then
+            return
+        end
+
+        standalone_presentation_id = nil
+        if not StartPresentation({
+                fe = TheFrontEnd,
+                fn = _Fade,
+                time = TITLE_FADE_TIME,
+                fade_type = TITLE_FADE_TYPE,
+            }) then
+            _Fade(TheFrontEnd, FADE_IN, TITLE_FADE_TIME, nil, nil, nil, TITLE_FADE_TYPE)
+        end
     end, nil, nil, TITLE_FADE_TYPE)
 end
 
@@ -399,6 +417,9 @@ local function StartMaxwellIntroCutscene(presentation_id, guid, x, y, z, can_ski
     local player = ThePlayer
     if presentation == nil or presentation.id ~= presentation_id or presentation.phase ~= "waiting_for_intro" or
         player == nil or not player:IsValid() then
+        if presentation ~= nil and presentation.id == presentation_id then
+            AbortPresentation(presentation_id)
+        end
         return
     end
 
@@ -442,6 +463,10 @@ end
 
 local function StopMaxwellIntroCutscene(presentation_id, guid)
     if maxwell_intro == nil or maxwell_intro.presentation_id ~= presentation_id or maxwell_intro.guid ~= guid then
+        local presentation = active_presentation
+        if presentation ~= nil and presentation.id == presentation_id then
+            AbortPresentation(presentation_id)
+        end
         return
     end
 
@@ -485,6 +510,7 @@ local function OnLocalPlayerDeactivated(inst)
 
     wait_for_activation_fade = nil
     queued_presentation = nil
+    standalone_presentation_id = nil
     ClearPresentationTasks(active_presentation)
     active_presentation = nil
     activation_fade = nil

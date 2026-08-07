@@ -59,7 +59,6 @@ Graph.GlobalPrePopulate = function(self, entities, width, height)
     return unpack(rets)
 end
 
-
 -- huh?
 -- local _GlobalPostPopulate = Graph.GlobalPostPopulate
 -- Graph.GlobalPostPopulate = function(self, entities, width, height)

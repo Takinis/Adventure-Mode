@@ -8,6 +8,8 @@ local ShardWorldIndex = ShardWorldIndex
 
 ShardAdventureIndex = Class(function(self, index)
     self.index = index
+    self._return_pending = false
+    self._return_callbacks = nil
 end)
 
 local ADVENTURE_WORLD_INDEX_FILE_ID = "adventure"
@@ -288,7 +290,9 @@ end
 
 local function restart_current_slot_after_shard_rpc(index, extra_params)
     extra_params = extra_params or {}
-    extra_params.world_index_file_id = ADVENTURE_WORLD_INDEX_FILE_ID
+    if extra_params.adventure_transition ~= nil then
+        extra_params.world_index_file_id = ADVENTURE_WORLD_INDEX_FILE_ID
+    end
     index.worldindex:RestartCurrentSlotAfterShardRPC(extra_params)
 end
 
@@ -1082,7 +1086,7 @@ function ShardAdventureIndex:AdvanceShard(opts, cb)
                             if not finalized then
                                 print("[Adventure Mode] Deferred return cleanup will resume after restart.")
                             end
-                            restart_current_slot_after_shard_rpc(index, { adventure_transition = "complete" })
+                            restart_current_slot_after_shard_rpc(index)
                             cb(true)
                         end)
                     else
@@ -1126,14 +1130,48 @@ end
 function ShardAdventureIndex:ReturnFromShard(reason, cb)
     cb = cb or NOOP
     local index = self.index
-    if index == nil or not self:IsActive() then
+    if index == nil then
         cb(false)
         return false
     end
+
+    if self._return_pending then
+        if self._return_callbacks ~= nil then
+            table.insert(self._return_callbacks, cb)
+        else
+            cb(true)
+        end
+        return true
+    end
+
+    if not self:IsActive() then
+        cb(false)
+        return false
+    end
+
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
         send_master_adventure_rpc("ReturnFromAdventure", { reason = reason or "return" })
         cb(true)
         return true
+    end
+
+    self._return_pending = true
+    self._return_callbacks = { cb }
+    local completed = false
+    local function finish(success)
+        if completed then
+            return
+        end
+        completed = true
+
+        local callbacks = self._return_callbacks
+        self._return_callbacks = nil
+        if not success then
+            self._return_pending = false
+        end
+        for _, callback in ipairs(callbacks) do
+            callback(success)
+        end
     end
 
     local function return_after_save()
@@ -1142,13 +1180,13 @@ function ShardAdventureIndex:ReturnFromShard(reason, cb)
             reason = reason or "return",
         }, function(secondary_ready, request)
             if not secondary_ready then
-                cb(false)
+                finish(false)
                 return
             end
             self:ReturnToMainWorld(reason or "return", function(success)
                 if not success then
                     ShardWorldIndex:AbortSecondaryWorldIndex(request)
-                    cb(false)
+                    finish(false)
                     return
                 end
                 ShardWorldIndex:CommitSecondaryWorldIndex(request, function(committed)
@@ -1158,12 +1196,12 @@ function ShardAdventureIndex:ReturnFromShard(reason, cb)
                             if not finalized then
                                 print("[Adventure Mode] Deferred return cleanup will resume after restart.")
                             end
-                            restart_current_slot_after_shard_rpc(index, { adventure_transition = reason or "return" })
-                            cb(true)
+                            restart_current_slot_after_shard_rpc(index)
+                            finish(true)
                         end)
                     else
                         index.worldindex:RollbackDeferredReturn(self:GetState(), function()
-                            cb(false)
+                            finish(false)
                         end)
                     end
                 end)
@@ -1177,7 +1215,7 @@ function ShardAdventureIndex:ReturnFromShard(reason, cb)
             if players_ready then
                 return_after_save()
             else
-                cb(false)
+                finish(false)
             end
         end)
     else

@@ -124,32 +124,9 @@ function MaxwellIntroSpawner:ShouldPlayCurrentChapter()
 end
 
 function MaxwellIntroSpawner:AddConnectedPlayers()
-    local run = GetCurrentAdventureRun()
-    if run ~= nil then
-        for userid, participating in pairs(run.participants or {}) do
-            if participating and type(userid) == "string" and userid ~= "" then
-                self.expected[userid] = true
-            end
-        end
-
-        for _, session in ipairs(run.player_sessions or {}) do
-            if type(session.userid) == "string" and session.userid ~= "" then
-                self.expected[session.userid] = true
-            end
-        end
-
-        for _, session in ipairs(run.adventure_player_sessions or {}) do
-            if type(session.userid) == "string" and session.userid ~= "" then
-                self.expected[session.userid] = true
-            end
-        end
-    end
-
-    local clients = TheNet:GetClientTable() or {}
-    local client_hosted = TheNet:GetServerIsClientHosted()
+    local clients = GetPlayerClientTable()
     for _, client in ipairs(clients) do
-        if type(client.userid) == "string" and client.userid ~= "" and
-            (client_hosted or client.performance == nil) then
+        if type(client.userid) == "string" and client.userid ~= "" then
             self.expected[client.userid] = true
         end
     end
@@ -250,6 +227,27 @@ function MaxwellIntroSpawner:GetReadyUserids()
     return userids
 end
 
+function MaxwellIntroSpawner:GetPresentationUserids()
+    local userids = {}
+    local seen = {}
+
+    local function AddUserids(users)
+        for userid in pairs(users) do
+            if not seen[userid] then
+                seen[userid] = true
+                table.insert(userids, userid)
+            end
+        end
+    end
+
+    AddUserids(self.expected)
+    AddUserids(self.players)
+    AddUserids(self.ready)
+    AddUserids(self.participants)
+    AddUserids(self.locked_players)
+    return userids
+end
+
 function MaxwellIntroSpawner:SendWaitStatus()
     if not self.wait_for_players then
         return
@@ -344,7 +342,7 @@ function MaxwellIntroSpawner:AbortPresentation()
         return
     end
 
-    local userids = self:GetReadyUserids()
+    local userids = self:GetPresentationUserids()
     if #userids > 0 then
         SendModRPCToClient(
             GetClientModRPC("AdventureMode", "AbortAdventurePresentation"),
@@ -363,19 +361,7 @@ function MaxwellIntroSpawner:OnWaitTimeout()
         return
     end
 
-    for userid in pairs(self.expected) do
-        if not self.ready[userid] then
-            self.expected[userid] = nil
-            self.players[userid] = nil
-        end
-    end
-
-    if next(self.ready) == nil then
-        self:AbortPresentation()
-    else
-        self:SendWaitStatus()
-        self:StartSharedTitle()
-    end
+    self:AbortPresentation()
 end
 
 function MaxwellIntroSpawner:StartSharedTitle()

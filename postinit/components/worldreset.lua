@@ -12,27 +12,9 @@ AddComponentPostInit("worldreset", function(self)
         return
     end
 
-    local adventure_return_pending = false
     debug.setupvalue(OnUpdate, index, function()
         if TheWorld.is_adventure then
-            if adventure_return_pending then
-                return
-            end
-
-            adventure_return_pending = true
-            local queued = ShardGameIndex.adventure:ReturnFromShard("death", function(success)
-                if not success and adventure_return_pending then
-                    adventure_return_pending = false
-                    WorldReset()
-                end
-            end)
-            if queued then
-                return
-            end
-            if adventure_return_pending then
-                adventure_return_pending = false
-                WorldReset()
-            end
+            WorldResetFromSim()
             return
         end
 

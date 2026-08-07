@@ -1,8 +1,6 @@
 local AddComponentPostInit = AddComponentPostInit
 GLOBAL.setfenv(1, GLOBAL)
 
-local RAINY_WORLD_PRECIPITATION_MULT = 3
-
 local function SourceMatches(source, query)
     return query == nil
         or source == query

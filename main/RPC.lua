@@ -327,6 +327,11 @@ AddShardModRPCHandler("AdventureMode", "FinalizeSecondaryWorldIndex", function(_
     local opts = DecodeShardPayload(data)
     worldindex:FinalizeSecondaryTransition(opts.request_id, opts.file_id, function(success, committed)
         if success or committed then
+            if opts.operation == "ReturnSecondaryAdventure" then
+                worldindex:RestartCurrentSlotAfterShardRPC()
+                return
+            end
+
             local is_adventure = type(opts.operation) == "string" and opts.operation:find("Adventure") ~= nil
             local transition = opts.operation == "BeginSecondaryAdventure" and "secondary_begin" or
                 opts.operation == "AdvanceSecondaryAdventure" and "secondary_advance" or
