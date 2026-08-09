@@ -23,8 +23,7 @@ AddTaskSet("DARKNESS", {
 		"Swamp start",
 		"Battlefield",
 		"Walled Kill the spiders",
-		-- "Sanity-Blocked Spider Queendom",
-		"Chessworld",
+		"Sanity-Blocked Spider Queendom",
 	},
 	numoptionaltasks = 2,
 	optionaltasks = {
@@ -34,6 +33,7 @@ AddTaskSet("DARKNESS", {
 		"Trapped Forest hunters",
 		"Waspy The hunters",
 		"Hounded Magic meadow",
+		"Chessworld",
 	},
 	set_pieces = {
 		["RuinedBase"] = { tasks = {

@@ -694,9 +694,11 @@ local function get_secondary_shard_ids()
         return shardids
     end
 
-    local self_shard = TheShard:GetShardId()
+    local self_shard = tostring(TheShard:GetShardId())
+    local master_shard = tostring(SHARDID.MASTER)
     for shardid in pairs(ShardList) do
-        if shardid ~= nil and shardid ~= self_shard and shardid ~= SHARDID.MASTER then
+        shardid = shardid ~= nil and tostring(shardid) or nil
+        if shardid ~= nil and shardid ~= self_shard and shardid ~= master_shard then
             table.insert(shardids, shardid)
         end
     end
@@ -909,6 +911,7 @@ end
 
 local function handle_secondary_world_index_reply(shardid, data)
     local request = pending_secondary_world_index_request
+    shardid = shardid ~= nil and tostring(shardid) or nil
     if request == nil or type(data) ~= "table" or data.request_id ~= request.id or
         data.operation ~= request.operation or data.phase ~= request.phase or request.waiting[shardid] ~= true then
         return false
@@ -1835,7 +1838,7 @@ end
 
 local function should_preserve_pending_world_generation(state)
     return is_world_index_transition_restart() or
-        (is_load_slot() and is_pending_world_generation_state(state))
+        is_pending_world_generation_state(state)
 end
 
 local function prepare_interrupted_world_index_regen(index)
@@ -3220,6 +3223,42 @@ function ShardWorldIndex:RestartCurrentSlotAfterShardRPC(index, extra_params)
     restart_current_slot_after_shard_rpc(index, extra_params)
 end
 
+function ShardWorldIndex:RollbackPendingGeneration(index, cb, file_id)
+    index, cb, file_id = resolve_index_args(self, index, cb, file_id)
+    cb = cb or noop
+
+    local state = get_world_index_state(index, file_id)
+    local session_id = index ~= nil and index:GetSession() or nil
+    local pending = state ~= nil and type(state.pending_generation) == "table" and state.pending_generation or nil
+    local source_session_id = state ~= nil and
+        (state.generation_source_session_id or (pending ~= nil and pending.generation_source_session_id or nil)) or nil
+    local recovery = state ~= nil and
+        (state.generation_recovery_state or (pending ~= nil and pending.generation_recovery_state or nil)) or nil
+    if state == nil or
+        state.active ~= true or
+        not is_pending_world_generation_state(state) then
+        cb(false, false)
+        return false
+    end
+    if session_id == nil or
+        session_id == "" or
+        source_session_id ~= session_id or
+        type(recovery) ~= "table" or
+        recovery.current_session_id ~= session_id then
+        print("[Shard World Index] Refusing to roll back an unrelated pending world generation.")
+        cb(false, true)
+        return false
+    end
+
+    local rollback_state = deepcopy_safe(state)
+    rollback_state.generation_source_session_id = source_session_id
+    rollback_state.generation_recovery_state = deepcopy_safe(recovery)
+    recover_interrupted_generation_source(index, rollback_state, function(success)
+        cb(success, true)
+    end)
+    return true
+end
+
 function ShardWorldIndex:SwitchIndexToGeneratedWorld(index, level, keep_session)
     index, level, keep_session = resolve_index_args(self, index, level, keep_session)
     switch_index_to_generated_world(index, level, keep_session)
@@ -3349,7 +3388,11 @@ end
 function ShardWorldIndex:PrepareSetServerShardData(index, cb)
     index, cb = resolve_index_args(self, index, cb)
     local state = get_world_index_state(index)
-    if state ~= nil and state.active and not should_preserve_pending_world_generation(state) then
+    -- Dedicated startup refreshes server data after loading an existing shard.
+    if state ~= nil and
+        state.active and
+        not world_index_state_matches_current_session(index, state) and
+        not should_preserve_pending_world_generation(state) then
         prepare_interrupted_world_index_regen(index)
         clear_interrupted_world_index_transition(index, cb)
         return true

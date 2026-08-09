@@ -106,6 +106,7 @@ function TeleportatoAssembly:PowerUp()
 		self.inst.components.activatable.inactive = true
 	end
 	self.inst._poweredup:set(true)
+	self.inst._powerupevent:push()
 end
 
 function TeleportatoAssembly:TryPowerUp()

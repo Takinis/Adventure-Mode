@@ -1068,15 +1068,30 @@ function ShardAdventureIndex:AdvanceShard(opts, cb)
             local function on_local_transition(success, next_chapter)
                 if not success then
                     ShardWorldIndex:AbortSecondaryWorldIndex(request)
-                    cb(false)
+                    index.worldindex:RollbackPendingGeneration(function(rolled_back, was_pending)
+                        if was_pending and not rolled_back then
+                            print("[Adventure Mode] Pending chapter rollback will resume after restart.")
+                            restart_current_slot_after_shard_rpc(index)
+                        end
+                        cb(false)
+                    end, ADVENTURE_WORLD_INDEX_FILE_ID)
                     return
                 end
                 ShardWorldIndex:CommitSecondaryWorldIndex(request, function(committed)
                     if operation ~= "ReturnSecondaryAdventure" then
                         if committed then
                             restart_current_slot_after_shard_rpc(index, { adventure_transition = "advance" })
+                            cb(true)
+                            return
                         end
-                        cb(committed == true)
+
+                        index.worldindex:RollbackPendingGeneration(function(rolled_back)
+                            if not rolled_back then
+                                print("[Adventure Mode] Pending chapter rollback will resume after restart.")
+                                restart_current_slot_after_shard_rpc(index)
+                            end
+                            cb(false)
+                        end, ADVENTURE_WORLD_INDEX_FILE_ID)
                         return
                     end
 

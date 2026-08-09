@@ -10,13 +10,26 @@ local prefabs = {
 	"teleportato_player_container",
 }
 
-local function ApplyPoweredPresentation(inst)
+local function ApplyPoweredState(inst)
+	if inst._poweredup:value() then
+		inst.AnimState:PlayAnimation("idle_on", true)
+		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_idle_LP", "teleportato_idle")
+	end
+end
+
+local function PlayPowerUpPresentation(inst)
 	if inst._poweredup:value() then
 		inst.AnimState:PlayAnimation("power_on", false)
 		inst.AnimState:PushAnimation("idle_on", true)
 		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_powerup", "teleportato_on")
 		inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_idle_LP", "teleportato_idle")
 	end
+end
+
+local function InitializePoweredPresentation(inst)
+	ApplyPoweredState(inst)
+	-- Ignore a saved net event delivered with the initial entity snapshot.
+	inst:ListenForEvent("teleportatopowerup", PlayPowerUpPresentation)
 end
 
 local function OnActivate(inst, doer)
@@ -67,6 +80,7 @@ local function fn()
 	inst:AddTag("teleportato")
 	inst:AddTag("trader")
 	inst._poweredup = net_bool(inst.GUID, "teleportato._poweredup", "teleportatopowerdirty")
+	inst._powerupevent = net_event(inst.GUID, "teleportatopowerup")
 
 	MakeObstaclePhysics(inst, 1.1)
 	inst.MiniMapEntity:SetIcon("teleportato.png")
@@ -74,8 +88,8 @@ local function fn()
 	inst.entity:SetPristine()
 
 	if not TheWorld.ismastersim then
-		inst:ListenForEvent("teleportatopowerdirty", ApplyPoweredPresentation)
-		inst:DoTaskInTime(0, ApplyPoweredPresentation)
+		inst:ListenForEvent("teleportatopowerdirty", ApplyPoweredState)
+		inst:DoTaskInTime(0, InitializePoweredPresentation)
 		return inst
 	end
 

@@ -5,15 +5,7 @@ GLOBAL.setfenv(1, GLOBAL)
 
 local populate_world_hooked = false
 
-local function GetAdventureSnapshot(savedata)
-    local topology = savedata ~= nil and savedata.map ~= nil and savedata.map.topology or nil
-    local state = topology ~= nil and (topology.world_index_state or topology.adventure_state) or nil
-
-    if type(state) ~= "table" or state.kind ~= "adventure" or state.active ~= true then
-        state = ShardGameIndex ~= nil and ShardGameIndex.adventure ~= nil and
-            ShardGameIndex.adventure:GetState() or nil
-    end
-
+local function BuildAdventureSnapshot(state)
     if type(state) ~= "table" or state.kind ~= "adventure" or state.active ~= true then
         return nil
     end
@@ -31,6 +23,35 @@ local function GetAdventureSnapshot(savedata)
         chapter_count = chapter_count,
         preset = state.current_preset,
     }
+end
+
+local function GetAdventureSnapshot(savedata)
+    local topology = savedata ~= nil and savedata.map ~= nil and savedata.map.topology or nil
+    local snapshot = BuildAdventureSnapshot(topology ~= nil and topology.world_index_state or nil)
+    if snapshot == nil then
+        local state = ShardGameIndex ~= nil and ShardGameIndex.adventure ~= nil and
+            ShardGameIndex.adventure:GetState() or nil
+        snapshot = BuildAdventureSnapshot(state)
+    end
+
+    return snapshot
+end
+
+local function GetRuntimeAdventureSnapshot(inst, fallback)
+    if inst ~= nil and inst.ismastersim then
+        local manager = ShardGameIndex ~= nil and ShardGameIndex.adventure or nil
+        if manager ~= nil then
+            return BuildAdventureSnapshot(manager:GetState())
+        end
+        return fallback
+    end
+
+    local adventure = inst ~= nil and inst.net ~= nil and inst.net.components ~= nil and
+        inst.net.components.adventure or nil
+    if adventure ~= nil then
+        return adventure:GetSnapshot()
+    end
+    return fallback
 end
 
 local function HookPopulateWorld()
@@ -65,19 +86,23 @@ local function HookPopulateWorld()
                     debug.setupvalue(common_scope_fn, common_postinit_index, function(inst, ...)
                         inst.is_adventure = is_adventure
                         function inst:IsAdventureActive()
-                            return adventure_snapshot ~= nil
+                            return GetRuntimeAdventureSnapshot(inst, adventure_snapshot) ~= nil
                         end
                         function inst:GetAdventureChapter()
-                            return adventure_snapshot ~= nil and adventure_snapshot.chapter or nil
+                            local snapshot = GetRuntimeAdventureSnapshot(inst, adventure_snapshot)
+                            return snapshot ~= nil and snapshot.chapter or nil
                         end
                         function inst:GetAdventureChapterCount()
-                            return adventure_snapshot ~= nil and adventure_snapshot.chapter_count or nil
+                            local snapshot = GetRuntimeAdventureSnapshot(inst, adventure_snapshot)
+                            return snapshot ~= nil and snapshot.chapter_count or nil
                         end
                         function inst:GetAdventurePreset()
-                            return adventure_snapshot ~= nil and adventure_snapshot.preset or nil
+                            local snapshot = GetRuntimeAdventureSnapshot(inst, adventure_snapshot)
+                            return snapshot ~= nil and snapshot.preset or nil
                         end
                         function inst:IsAdventurePreset(preset)
-                            return adventure_snapshot ~= nil and adventure_snapshot.preset == preset
+                            local snapshot = GetRuntimeAdventureSnapshot(inst, adventure_snapshot)
+                            return snapshot ~= nil and snapshot.preset == preset
                         end
                         return common_postinit(inst, ...)
                     end)
@@ -97,7 +122,8 @@ local function HookPopulateWorld()
                     end
 
                     if TheWorld.ismastersim then
-                        TheWorld.net.components.adventure:SetSnapshot(adventure_snapshot)
+                        local snapshot = GetRuntimeAdventureSnapshot(TheWorld, adventure_snapshot)
+                        TheWorld.net.components.adventure:SetSnapshot(snapshot)
                     end
                     return unpack(rets, 2)
                 end

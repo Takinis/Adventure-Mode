@@ -7,6 +7,21 @@ local function IsLivingPlayer(player)
 		not player.components.health:IsDead() and not player:HasTag("playerghost")
 end
 
+local function RecoverPlayerFromTransition(player)
+	if player == nil or not player:IsValid() or not player.is_teleporting then
+		return
+	end
+
+	player.is_teleporting = nil
+	if player.sg ~= nil and player.sg.currentstate ~= nil and
+		player.sg.currentstate.name == "teleportato_teleport" then
+		player.sg:GoToState("idle")
+	end
+	if player.SetCameraDistance ~= nil then
+		player:SetCameraDistance()
+	end
+end
+
 local function RunProgressCheck(inst, self)
 	self.progresschecktask = nil
 	self:Transition()
@@ -31,7 +46,8 @@ local function AdvanceShard(world, self, playersessions)
 			self.inst.components.activatable.inactive = true
 		end
 		for _, player in ipairs(AllPlayers or {}) do
-			player.is_teleporting = nil
+			RecoverPlayerFromTransition(player)
+			self:Deny(player, STRINGS.UI.HUD.TELEPORTATO_TRANSITION_FAILED)
 		end
 	end)
 end
@@ -89,7 +105,12 @@ function TeleportatoTravel:GetActivationProgress()
 end
 
 function TeleportatoTravel:Transition(doer)
-	if not TheWorld:IsAdventureActive() or not self.inst.components.teleportatoassembly:IsComplete() then
+	if not TheWorld.is_adventure then
+		self:Deny(doer, STRINGS.UI.HUD.TELEPORTATO_ADVENTURE_INACTIVE)
+		return false
+	end
+	if not self.inst.components.teleportatoassembly:IsComplete() then
+		self:Deny(doer, STRINGS.UI.HUD.TELEPORTATO_INCOMPLETE)
 		return false
 	end
 	if not ShardGameIndex.adventure:IsMasterShard() then
@@ -139,8 +160,18 @@ function TeleportatoTravel:SetPlayerActivation(doer, active)
 		self.confirmedplayers[doer.userid] = nil
 		return false
 	end
-	if not IsLivingPlayer(doer) or not TheWorld:IsAdventureActive() or
-		not self.inst.components.teleportatoassembly:IsComplete() or self.activating then
+	if not IsLivingPlayer(doer) then
+		return false
+	end
+	if not TheWorld.is_adventure then
+		self:Deny(doer, STRINGS.UI.HUD.TELEPORTATO_ADVENTURE_INACTIVE)
+		return false
+	end
+	if not self.inst.components.teleportatoassembly:IsComplete() then
+		self:Deny(doer, STRINGS.UI.HUD.TELEPORTATO_INCOMPLETE)
+		return false
+	end
+	if self.activating then
 		return false
 	end
 

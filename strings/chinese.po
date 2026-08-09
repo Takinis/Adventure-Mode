@@ -45,6 +45,21 @@ msgctxt "STRINGS.UI.HUD.TELEPORTATO_PLAYER_CONFIRMED"
 msgid "Player %s has confirmed."
 msgstr "玩家 %s 已确认"
 
+#. STRINGS.UI.HUD.TELEPORTATO_ADVENTURE_INACTIVE
+msgctxt "STRINGS.UI.HUD.TELEPORTATO_ADVENTURE_INACTIVE"
+msgid "The Adventure run is no longer active."
+msgstr "当前冒险流程已结束。"
+
+#. STRINGS.UI.HUD.TELEPORTATO_INCOMPLETE
+msgctxt "STRINGS.UI.HUD.TELEPORTATO_INCOMPLETE"
+msgid "The Teleportato is incomplete."
+msgstr "传送基座尚未完整组装。"
+
+#. STRINGS.UI.HUD.TELEPORTATO_TRANSITION_FAILED
+msgctxt "STRINGS.UI.HUD.TELEPORTATO_TRANSITION_FAILED"
+msgid "Unable to travel to the next chapter. Try again."
+msgstr "无法前往下一章节，请重试。"
+
 #. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE"
 msgid "Return to the Original World"
