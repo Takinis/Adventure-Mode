@@ -9,3 +9,4 @@ end
 
 AddPrefabPostInit("forest_network", fn)
 AddPrefabPostInit("cave_network", fn)
+AddPrefabPostInit("porkland_network", fn)

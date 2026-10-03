@@ -12,9 +12,32 @@ AddComponentPostInit("worldreset", function(self)
         return
     end
 
+    local adventure_return_pending = false
     debug.setupvalue(OnUpdate, index, function()
         if TheWorld.is_adventure then
-            WorldResetFromSim()
+            if adventure_return_pending then
+                return
+            end
+
+            local adventure = ShardGameIndex ~= nil and ShardGameIndex.adventure or nil
+            if adventure == nil then
+                print("[Adventure Mode] Unable to return to the original world after everyone died.")
+                return
+            end
+
+            adventure_return_pending = true
+            local completed = false
+            local queued = adventure:ReturnFromShard("death", function(success)
+                completed = true
+                if not success then
+                    adventure_return_pending = false
+                    print("[Adventure Mode] Unable to return to the original world after everyone died.")
+                end
+            end)
+            if not queued and not completed then
+                adventure_return_pending = false
+                print("[Adventure Mode] Unable to start returning to the original world after everyone died.")
+            end
             return
         end
 

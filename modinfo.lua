@@ -7,7 +7,7 @@ description = en_zh("Bringing you the adventure mode experience that recreates D
 author = "Sydney & Ardent & Kiseru"
 forumthread = ""
 
-version = "1.0.9"
+version = "1.0.9.2"
 api_version = 10
 
 dst_compatible = true
@@ -21,6 +21,11 @@ icon = "modicon.tex"
 priority = 9999
 server_filter_tags = {"adventure","adventure mode"}
 
-mod_dependencies = {}
+mod_dependencies =
+{
+    {
+        ["ShardWorldIndex"] = false,
+    },
+}
 
 configuration_options = {}

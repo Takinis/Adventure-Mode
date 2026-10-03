@@ -1,14 +1,13 @@
 local NODE_TYPE = GLOBAL.NODE_TYPE
 
--- Keep a normal site for the start layout while leaving unpainted tiles impassable.
-AddRoom("HamletSecondaryStartRoom", {
+AddRoom("AdventureSecondaryStartRoom", {
     colour = { r = 0.1, g = 0.6, b = 0.1, a = 0.8 },
     value = WORLD_TILES.IMPASSABLE,
     type = NODE_TYPE.Room,
     contents = {},
 })
 
-AddTask("HamletSecondary", {
+AddTask("AdventureSecondary", {
     locks = LOCKS.NONE,
     keys_given = KEYS.NONE,
     room_choices = {

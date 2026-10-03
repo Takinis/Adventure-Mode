@@ -8,6 +8,7 @@ local prefab_posts = {
     "cave_entrance",
     "world",
     "world_network",
+    "homesign",
     "statuemaxwell",
     "statueharp",
 }
@@ -29,9 +30,7 @@ local stategraphs_posts = {
 modimport("postinit/widgets/redux/templates")
 modimport("postinit/widgets/playerdeathnotification")
 
-modimport("postinit/shardworldindex")
 modimport("postinit/shardadventureindex")
-modimport("postinit/shardsaveindex")
 modimport("postinit/shardindex")
 
 modimport("postinit/entityscript")

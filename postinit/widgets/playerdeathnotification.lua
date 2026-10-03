@@ -2,15 +2,31 @@ local AddClassPostConstruct = AddClassPostConstruct
 GLOBAL.setfenv(1, GLOBAL)
 
 AddClassPostConstruct("widgets/playerdeathnotification", function(self)
+    self._adventure_return_requested = false
+    self.inst:ListenForEvent("adventure_return_result", function(_, data)
+        if data == nil or data.success ~= true then
+            self._adventure_return_requested = false
+            self.reset_hold_time = 0
+        end
+    end, TheWorld)
+
     local _DoRegenWorld = self.DoRegenWorld
     function self:DoRegenWorld()
         if not TheWorld:IsAdventureActive() then
             return _DoRegenWorld(self)
         end
 
-        if self.started and self.owner.Network:IsServerAdmin() then
+        if self.started and self.owner.Network:IsServerAdmin() and not self._adventure_return_requested then
+            self._adventure_return_requested = true
+            self.reset_hold_time = 0
             SendModRPCToServer(GetModRPC("AdventureMode", "ReturnAfterDeath"))
         end
+    end
+
+    local _StopRegenTimer = self.StopRegenTimer
+    function self:StopRegenTimer(...)
+        self._adventure_return_requested = false
+        return _StopRegenTimer(self, ...)
     end
 
     local _Reset = self.Reset

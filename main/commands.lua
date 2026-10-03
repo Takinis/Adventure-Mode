@@ -32,7 +32,7 @@ function c_adventure_last()
         return false
     end
 
-    if not ShardGameIndex.adventure:IsMasterShard() then
+    if not ShardWorldIndex:IsMasterShard() then
         print("[Adventure Mode] c_adventure_last must be called on the master shard.")
         return false
     end
@@ -97,7 +97,7 @@ local function PrintAdventureTestUsage()
 end
 
 function c_adventure(level)
-    if not ShardGameIndex.adventure:IsMasterShard() then
+    if not ShardWorldIndex:IsMasterShard() then
         print("[Adventure Mode] c_adventure_level must be called on the master shard.")
         return false
     end
@@ -118,119 +118,6 @@ function c_adventure(level)
         level_sequence = { level_id },
         sequence_id = "test_"..string.lower(level_id),
     })
-end
-
-local WORLD_INDEX_WORLD_ALIASES =
-{
-    dst = "forest",
-    forest = "forest",
-    cave = "cave",
-    caves = "cave",
-    sw = "shipwrecked",
-    shipwrecked = "shipwrecked",
-    volcano = "volcano",
-    hamlet = "porkland",
-    porkland = "porkland",
-}
-
-local function GetConsoleWorldIndex()
-    if ShardGameIndex == nil or ShardGameIndex.worldindex == nil then
-        print("[Shard World Index] ShardWorldIndex is unavailable.")
-        return nil
-    end
-    return ShardGameIndex.worldindex
-end
-
-local function GetConsoleWorldIndexTarget(world_type)
-    if type(world_type) == "table" then
-        return world_type, world_type.file_id or world_type.world_type or world_type.location or world_type.id or world_type.session_id
-    end
-
-    if world_type == nil or world_type == "" then
-        print("[Shard World Index] Usage: c_switchworld(\"porkland\"), c_shipwrecked(), c_volcano(), c_porkland(), c_forestworld().")
-        return nil
-    end
-
-    local key = string.lower(tostring(world_type))
-    local target_world_type = WORLD_INDEX_WORLD_ALIASES[key] or key
-    return { type = "generated", world_type = target_world_type }, target_world_type
-end
-
-local function IsConsoleAdventureWorldIndexActive(index)
-    local state = index:GetState()
-    return state ~= nil and state.active == true and state.kind == "adventure"
-end
-
-function c_switchworld(world_type)
-    local index = GetConsoleWorldIndex()
-    if index == nil then
-        return false
-    end
-
-    if IsConsoleAdventureWorldIndexActive(index) then
-        print("[Shard World Index] Adventure is active; c_switchworld is only for normal WorldIndex operations.")
-        return false
-    end
-
-    local target, file_id = GetConsoleWorldIndexTarget(world_type)
-    if target == nil then
-        return false
-    end
-
-    local opts =
-    {
-        kind = "world_index",
-        reason = "console_switch",
-        target = target,
-        file_id = file_id,
-        reuse_existing = true,
-        force_players_to_master_modname = "AdventureMode",
-        force_players_to_master_rpcname = "ForcePlayersToMaster",
-    }
-
-    if index:IsActive() then
-        opts.reason = "console_advance"
-        print("[Shard World Index] Advancing to "..tostring(file_id or world_type)..".")
-        return index:AdvanceWorldIndex(opts)
-    end
-
-    print("[Shard World Index] Switching to "..tostring(file_id or world_type)..".")
-    return index:StartWorldIndex(opts)
-end
-
-function c_returnworld(reason)
-    local index = GetConsoleWorldIndex()
-    if index == nil then
-        return false
-    end
-
-    local state = index:GetState()
-    if state == nil or state.active ~= true then
-        print("[Shard World Index] No active normal world index to return from.")
-        return false
-    end
-    if state.kind == "adventure" then
-        print("[Shard World Index] Adventure is active; use ShardGameIndex.adventure:ReturnFromShard() instead.")
-        return false
-    end
-
-    return index:ReturnFromWorldIndex(reason or "console_return")
-end
-
-function c_forest()
-    return c_switchworld("forest")
-end
-
-function c_shipwrecked()
-    return c_switchworld("shipwrecked")
-end
-
-function c_volcano()
-    return c_switchworld("volcano")
-end
-
-function c_porkland()
-    return c_switchworld("porkland")
 end
 
 function c_frograin()

@@ -46,7 +46,7 @@ local function RequestAdventureEntry(inst, doer)
     end
 
     if ShardGameIndex == nil or ShardGameIndex.adventure == nil or
-        not ShardGameIndex.adventure:IsMasterShard() then
+        not ShardWorldIndex:IsMasterShard() then
         DenyVote(doer, STRINGS.UI.ADVENTUREMODE_VOTE.MASTER_ONLY)
         return false
     end

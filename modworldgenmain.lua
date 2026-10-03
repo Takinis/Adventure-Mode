@@ -1,8 +1,9 @@
-modimport("main/toolutil")
-
 local postinit = {
     levels = {
         "forest"
+    },
+    tasks = {
+        "maxwell"
     },
     tasksets = {
         "forest",
@@ -27,11 +28,12 @@ end
 modimport("scripts/map/ad_layouts")
 modimport("scripts/map/levels/adventure")
 modimport("scripts/map/ad_tasksets")
-modimport("scripts/map/levels/hamlet_secondary")
 modimport("scripts/map/ad_startlocations")
-
-modimport("scripts/map/tasks/maxwell")
-modimport("scripts/map/tasks/hamlet_secondary")
+modimport("scripts/map/levels/adventure_secondary")
+modimport("scripts/map/tasksets/adventure_secondary")
+modimport("scripts/map/tasks/adventure_secondary")
+modimport("scripts/map/adventure_secondary_startlocation")
+modimport("scripts/map/adventure_secondary_layout")
 
 -- require("map/ad_layouts")
 -- require("map/ad_startlocations")

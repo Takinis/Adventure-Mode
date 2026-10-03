@@ -46,10 +46,3 @@ AddStartLocation("MaxHomeStart", {
 	start_setpeice = "MaxHomeStart",
 	start_node     = "Clearing",
 })
-
-AddStartLocation("HamletSecondaryStart", {
-	name           = "HamletSecondaryStart",
-	location       = "cave",
-	start_setpeice = "hamlet_secondary_start",
-	start_node     = "HamletSecondaryStartRoom",
-})

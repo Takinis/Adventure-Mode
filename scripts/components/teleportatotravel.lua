@@ -113,7 +113,7 @@ function TeleportatoTravel:Transition(doer)
 		self:Deny(doer, STRINGS.UI.HUD.TELEPORTATO_INCOMPLETE)
 		return false
 	end
-	if not ShardGameIndex.adventure:IsMasterShard() then
+	if not ShardWorldIndex:IsMasterShard() then
 		self:Deny(doer, "Only the Master world can unlock the next chapter.")
 		return false
 	end

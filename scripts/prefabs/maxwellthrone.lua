@@ -310,7 +310,7 @@ local function ApplyPuppetCharacter(inst)
         monkey_curse = inst._puppet_monkey_curse:value(),
     })
     if skins ~= nil then
-        inst.components.skinner:ApplyAdventureModeCopiedSkins(
+        inst.components.skinner:MakePuppetCopySkinsFromPlayer(
             character,
             inst._puppet_userid:value(),
             skins,

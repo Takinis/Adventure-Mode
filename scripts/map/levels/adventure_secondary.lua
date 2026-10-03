@@ -1,12 +1,13 @@
 AddLevel(LEVELTYPE.SURVIVAL, {
-    id = "HAMLET_SECONDARY",
-    name = "HAMLET_SECONDARY",
-    desc = "HAMLET_SECONDARY",
+    id = "ADVENTURE_SECONDARY",
+    name = "ADVENTURE_SECONDARY",
+    desc = "ADVENTURE_SECONDARY",
     location = "cave",
     version = 4,
     overrides = {
-        task_set = "HAMLET_SECONDARY",
-        start_location = "HamletSecondaryStart",
+        is_adventure = true,
+        task_set = "ADVENTURE_SECONDARY",
+        start_location = "AdventureSecondaryStart",
         world_size = "small",
         layout_mode = "LinkNodesByKeys",
         roads = "never",

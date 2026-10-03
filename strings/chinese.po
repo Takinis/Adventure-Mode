@@ -31,13 +31,13 @@ msgstr "已准备：%d / %d\n%s"
 #, lua-format
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE"
 msgid "Everyone is dead. Everyone will return to the main world in: %d"
-msgstr "每个人都死了。所有人即将返回：%d"
+msgstr "所有人都已死亡。%d 秒后返回原来的主世界"
 
 #. STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE
 #, lua-format
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.RESET_BUTTON_ADVENTURE"
 msgid "Return Now"
-msgstr "现在返回"
+msgstr "立即返回"
 
 #. STRINGS.UI.HUD.TELEPORTATO_PLAYER_CONFIRMED
 #, lua-format
@@ -63,12 +63,12 @@ msgstr "无法前往下一章节，请重试。"
 #. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_TITLE"
 msgid "Return to the Original World"
-msgstr "开始返回世界"
+msgstr "返回原来的主世界"
 
 #. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_RETURN_CONFIRM_BODY"
 msgid "Are you sure you want to return to the original world?"
-msgstr "确定要返回到原来的世界吗？"
+msgstr "确定要返回原来的主世界吗？"
 
 #. STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE
 msgctxt "STRINGS.UI.WORLDRESETDIALOG.ADVENTURE_NEXT_CHAPTER_CONFIRM_TITLE"
