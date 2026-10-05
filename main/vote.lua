@@ -18,7 +18,6 @@ local function CanStartAdventureVote(_command, caller)
         pending.portal._adventure_transitioning or
         pending.expires_at < GetTime() or
         ShardGameIndex == nil or ShardGameIndex.adventure == nil or
-        not ShardWorldIndex:IsMasterShard() or
         ShardGameIndex.adventure:IsActive() then
         return false, "ADVENTUREMODE"
     end
@@ -39,7 +38,7 @@ local function EnterAdventureAfterVote(params)
     if pending ~= nil and pending.started and pending.expires_at >= GetTime() and
         pending.portal ~= nil and pending.portal:IsValid() and
         ShardGameIndex ~= nil and ShardGameIndex.adventure ~= nil and
-        ShardWorldIndex:IsMasterShard() and not ShardGameIndex.adventure:IsActive() then
+        not ShardGameIndex.adventure:IsActive() then
         pending.portal:Adventure()
     end
 end

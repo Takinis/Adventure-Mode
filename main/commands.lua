@@ -32,11 +32,6 @@ function c_adventure_last()
         return false
     end
 
-    if not ShardWorldIndex:IsMasterShard() then
-        print("[Adventure Mode] c_adventure_last must be called on the master shard.")
-        return false
-    end
-
     local run = ShardGameIndex.adventure:GetState()
     local total = run ~= nil and run.level_sequence ~= nil and #run.level_sequence or 0
     if run == nil or not run.active or total <= 0 then
@@ -97,11 +92,6 @@ local function PrintAdventureTestUsage()
 end
 
 function c_adventure(level)
-    if not ShardWorldIndex:IsMasterShard() then
-        print("[Adventure Mode] c_adventure_level must be called on the master shard.")
-        return false
-    end
-
     if TheWorld.is_adventure then
         print("[Adventure Mode] Adventure is already active. Return from it before starting a test level.")
         return false

@@ -85,6 +85,29 @@ local function get_adventure_run_id(value)
     return type(value) == "string" and value ~= "" and value or nil
 end
 
+local function get_local_living_player_count()
+    local count = 0
+    for _, player in ipairs(AllPlayers or {}) do
+        if player ~= nil and player:IsValid() and
+            player.components.health ~= nil and not player.components.health:IsDead() and
+            not player:HasTag("playerghost") then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function validate_forwarded_source_players(opts)
+    if opts.require_source_exclusive ~= true then
+        return true
+    end
+    if get_local_living_player_count() > 0 then
+        return false
+    end
+    local source_player_count = math.max(math.floor(tonumber(opts.source_player_count) or 0), 0)
+    return ShardWorldIndex:GetSecondaryShardPlayerCount() <= source_player_count
+end
+
 local function create_adventure_run_id(index)
     adventure_run_serial = adventure_run_serial + 1
     local session_id = index ~= nil and index:GetSession() or "session"
@@ -1531,9 +1554,15 @@ function ShardAdventureIndex:Start(opts, cb)
         return false
     end
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
-        print("[Adventure Mode] ShardGameIndex.adventure:Start must be called on the master shard.")
-        cb(false)
-        return false
+        opts = opts or {}
+        return index.worldindex:RequestForwardedTransition("adventure_start",
+        {
+            level_sequence = ShardWorldIndex:DeepCopy(opts.level_sequence),
+            chapter = opts.chapter,
+            sequence_id = opts.sequence_id,
+            require_source_exclusive = true,
+            source_player_count = get_local_living_player_count(),
+        }, cb)
     end
     opts = opts or {}
     local level_sequence, sequence_error = normalize_adventure_playlist(opts.level_sequence or self:BuildPlaylist())
@@ -1599,9 +1628,25 @@ function ShardAdventureIndex:AdvanceShard(opts, cb)
         return false
     end
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
-        print("[Adventure Mode] ShardGameIndex.adventure:AdvanceShard must be called on the master shard.")
-        cb(false)
-        return false
+        opts = opts or {}
+        local run = self:GetState()
+        self._advance_pending = true
+        return index.worldindex:RequestForwardedTransition("adventure_advance",
+        {
+            run_id = run.run_id,
+            sequence_id = run.sequence_id,
+            chapter = opts.chapter,
+            current_chapter = run.chapter,
+            chapter_revision = get_adventure_chapter_revision(run.chapter_revision, 1),
+            player_sessions = ShardWorldIndex:DeepCopy(opts.player_sessions),
+            require_source_exclusive = true,
+            source_player_count = get_local_living_player_count(),
+        }, function(success)
+            if not success then
+                self._advance_pending = false
+            end
+            cb(success == true)
+        end)
     end
 
     opts = opts or {}
@@ -1647,6 +1692,9 @@ function ShardAdventureIndex:AdvanceShard(opts, cb)
         secondary_shard_wait_timeout = opts.secondary_shard_wait_timeout,
         secondary_shard_wait_poll_interval = opts.secondary_shard_wait_poll_interval,
         save_current = false,
+        force_players_to_master = true,
+        force_players_to_master_modname = "AdventureMode",
+        force_players_to_master_rpcname = "ForcePlayersToMaster",
     }, function(done)
         if operation == "ReturnSecondaryAdventure" then
             self:ReturnToMainWorld("complete", done,
@@ -2099,3 +2147,37 @@ register_secondary_adventure_handler("ReturnSecondaryAdventure",
         })
     end,
 })
+
+ShardWorldIndex:RegisterForwardedTransitionHandler("adventure_start", function(index, opts, cb)
+    if index.adventure == nil or not validate_forwarded_source_players(opts) then
+        cb(false)
+        return
+    end
+    index.adventure:Start(
+    {
+        level_sequence = ShardWorldIndex:DeepCopy(opts.level_sequence),
+        chapter = opts.chapter,
+        sequence_id = opts.sequence_id,
+    }, cb)
+end)
+
+ShardWorldIndex:RegisterForwardedTransitionHandler("adventure_advance", function(index, opts, cb)
+    local adventure = index.adventure
+    local run = adventure ~= nil and adventure:GetState() or nil
+    if not validate_forwarded_source_players(opts) or
+        run == nil or run.active ~= true or
+        run.run_id ~= opts.run_id or
+        (run.sequence_id or "default") ~= (opts.sequence_id or "default") or
+        math.floor(tonumber(run.chapter) or 0) ~= math.floor(tonumber(opts.current_chapter) or -1) or
+        get_adventure_chapter_revision(run.chapter_revision, 1) ~=
+            get_adventure_chapter_revision(opts.chapter_revision, 0) then
+        cb(false)
+        return
+    end
+
+    adventure:AdvanceShard(
+    {
+        chapter = opts.chapter,
+        player_sessions = ShardWorldIndex:DeepCopy(opts.player_sessions),
+    }, cb)
+end)
