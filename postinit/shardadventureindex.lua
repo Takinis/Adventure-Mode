@@ -85,6 +85,11 @@ local function get_adventure_run_id(value)
     return type(value) == "string" and value ~= "" and value or nil
 end
 
+local function is_forest_adventure_entry_world()
+    return not TheWorld.is_adventure and
+        ShardWorldIndex:GetRuntimeWorldType() == "forest"
+end
+
 local function get_local_living_player_count()
     local count = 0
     for _, player in ipairs(AllPlayers or {}) do
@@ -1553,18 +1558,25 @@ function ShardAdventureIndex:Start(opts, cb)
         cb(false)
         return false
     end
+    opts = opts or {}
+    local forwarded_forest_source = opts.forwarded_source_world_type == "forest" and
+        ShardWorldIndex:IsMasterShard()
+    if not is_forest_adventure_entry_world() and not forwarded_forest_source then
+        print("[Adventure Mode] Adventure Mode can only be started from a forest world.")
+        cb(false)
+        return false
+    end
     if TheShard ~= nil and not ShardWorldIndex:IsMasterShard() then
-        opts = opts or {}
         return index.worldindex:RequestForwardedTransition("adventure_start",
         {
             level_sequence = ShardWorldIndex:DeepCopy(opts.level_sequence),
             chapter = opts.chapter,
             sequence_id = opts.sequence_id,
+            source_world_type = "forest",
             require_source_exclusive = true,
             source_player_count = get_local_living_player_count(),
         }, cb)
     end
-    opts = opts or {}
     local level_sequence, sequence_error = normalize_adventure_playlist(opts.level_sequence or self:BuildPlaylist())
     if level_sequence == nil then
         print("[Adventure Mode] Cannot start adventure: " .. tostring(sequence_error) .. ".")
@@ -2149,7 +2161,9 @@ register_secondary_adventure_handler("ReturnSecondaryAdventure",
 })
 
 ShardWorldIndex:RegisterForwardedTransitionHandler("adventure_start", function(index, opts, cb)
-    if index.adventure == nil or not validate_forwarded_source_players(opts) then
+    if opts.source_world_type ~= "forest" or
+        index.adventure == nil or
+        not validate_forwarded_source_players(opts) then
         cb(false)
         return
     end
@@ -2158,6 +2172,7 @@ ShardWorldIndex:RegisterForwardedTransitionHandler("adventure_start", function(i
         level_sequence = ShardWorldIndex:DeepCopy(opts.level_sequence),
         chapter = opts.chapter,
         sequence_id = opts.sequence_id,
+        forwarded_source_world_type = opts.source_world_type,
     }, cb)
 end)
 

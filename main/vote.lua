@@ -7,6 +7,12 @@ local VoteUtil = require("voteutil")
 local COMMAND_NAME = "adventuremode_enter"
 local VOTE_EXPIRY_PADDING = 5
 
+local function GetAdventurePortalWrongWorldString(player)
+    local character = STRINGS.CHARACTERS[string.upper(player.prefab)] or
+        STRINGS.CHARACTERS.GENERIC
+    return character.ACTIONFAIL.ADVENTURE_PORTAL.WRONG_WORLD
+end
+
 local function CanStartAdventureVote(_command, caller)
     if TheWorld == nil or not TheWorld.ismastersim then
         return true
@@ -74,5 +80,11 @@ end)
 AddClientModRPCHandler("AdventureMode", "AdventureVoteDenied", function(message)
     if ThePlayer ~= nil and ThePlayer.components.talker ~= nil then
         ThePlayer.components.talker:Say(message or STRINGS.UI.ADVENTUREMODE_VOTE.FAILED)
+    end
+end)
+
+AddClientModRPCHandler("AdventureMode", "AdventurePortalWrongWorld", function()
+    if ThePlayer ~= nil and ThePlayer.components.talker ~= nil then
+        ThePlayer.components.talker:Say(GetAdventurePortalWrongWorldString(ThePlayer))
     end
 end)

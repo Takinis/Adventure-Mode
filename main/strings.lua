@@ -49,6 +49,39 @@ STRINGS.UI.GENDERSTRINGS = {
     ROBOT = { ONE = "they", TWO = "their" },
 }
 
+local adventure_portal_wrong_world_lines =
+{
+    GENERIC = "This gate only answers in the Forest.",
+    WILSON = "Its coordinates are anchored to the Forest.",
+    WILLOW = "This thing won't light up outside the Forest.",
+    WOLFGANG = "Portal only works in forest world!",
+    WENDY = "Beyond the Forest's embrace, this path is closed.",
+    WX78 = "WORLD TYPE REJECTED: FOREST REQUIRED",
+    WICKERBOTTOM = "Its mechanism is attuned exclusively to the Forest.",
+    WOODIE = "Wrong woods, eh? It needs the Forest.",
+    WAXWELL = "This gate will answer only in the Forest.",
+    WATHGRITHR = "This gate opens only upon the forest realm!",
+    WEBBER = "It only wants to open in the Forest.",
+    WINONA = "Wrong site. This rig needs the Forest.",
+    WORTOX = "Wrong realm for this forest-bound door!",
+    WORMWOOD = "Not right home for magic door. Needs Forest.",
+    WARLY = "This gate requires the Forest's proper setting.",
+    WURT = "Door only wakes in Forest, florp!",
+    WALTER = "This gate's trail starts in the Forest.",
+    WANDA = "This isn't the right place in its timeline.",
+    WES = "...",
+    WONKEY = "Eek! Forest door no work here!",
+}
+
+for character, line in pairs(adventure_portal_wrong_world_lines) do
+    local character_strings = STRINGS.CHARACTERS[character] or {}
+    STRINGS.CHARACTERS[character] = character_strings
+    character_strings.ACTIONFAIL = character_strings.ACTIONFAIL or {}
+    character_strings.ACTIONFAIL.ADVENTURE_PORTAL =
+        character_strings.ACTIONFAIL.ADVENTURE_PORTAL or {}
+    character_strings.ACTIONFAIL.ADVENTURE_PORTAL.WRONG_WORLD = line
+end
+
 AddSimPostInit(function()
     if TheWorld.is_adventure then
         STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG = STRINGS.UI.WORLDRESETDIALOG.REGEN_MSG_ADVENTURE

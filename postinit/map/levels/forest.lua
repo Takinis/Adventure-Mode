@@ -3,18 +3,24 @@ GLOBAL.setfenv(1, GLOBAL)
 
 local Levels = require("map/levels")
 
-local function IsSurvivalLevel(level)
-    return Levels.GetTypeForLevelID(level.id) == LEVELTYPE.SURVIVAL
+local function IsForestSurvivalLevel(level)
+    local is_survival = Levels.GetTypeForLevelID(level.id) == LEVELTYPE.SURVIVAL
         or Levels.GetTypeForWorldGenID(level.id) == LEVELTYPE.SURVIVAL
         or Levels.GetTypeForSettingsID(level.id) == LEVELTYPE.SURVIVAL
+    if not is_survival then
+        return false
+    end
+
+    local location = type(level.location) == "string" and string.lower(level.location) or nil
+    local overrides = type(level.overrides) == "table" and level.overrides or {}
+    return location == "forest" and
+        overrides.is_adventure ~= true and
+        overrides.task_set ~= "HAMLET_SECONDARY" and
+        overrides.task_set ~= "ADVENTURE_SECONDARY"
 end
 
 AddLevelPreInitAny(function(level)
-    if not IsSurvivalLevel(level) then
-        return
-    end
-
-    if level.overrides.task_set == "HAMLET_SECONDARY" then
+    if not IsForestSurvivalLevel(level) then
         return
     end
 

@@ -6,8 +6,13 @@ local function GetVerb(inst)
 	return STRINGS.ACTIONS.ACTIVATE.GENERIC
 end
 
+local function IsForestWorld()
+    return not TheWorld.is_adventure and
+        ShardWorldIndex:GetRuntimeWorldType() == "forest"
+end
+
 local function Adventure(inst)
-    if inst._adventure_transitioning then
+    if inst._adventure_transitioning or not IsForestWorld() then
         return false
     end
 
@@ -31,8 +36,17 @@ local function Adventure(inst)
 end
 
 local function DenyVote(doer, message)
-    if doer ~= nil and doer.userid ~= nil then
+    if doer.userid ~= nil then
         SendModRPCToClient(GetClientModRPC("AdventureMode", "AdventureVoteDenied"), doer.userid, message)
+    end
+end
+
+local function DenyWrongWorld(doer)
+    if doer.userid ~= nil then
+        SendModRPCToClient(
+            GetClientModRPC("AdventureMode", "AdventurePortalWrongWorld"),
+            doer.userid
+        )
     end
 end
 
@@ -42,6 +56,10 @@ local function RequestAdventureEntry(inst, doer)
     end
     if not doer:IsNear(inst, 10) then
         DenyVote(doer, STRINGS.UI.ADVENTUREMODE_VOTE.TOO_FAR)
+        return false
+    end
+    if not IsForestWorld() then
+        DenyWrongWorld(doer)
         return false
     end
 
@@ -94,6 +112,11 @@ local function GetBodyText()
 end
 
 local function OnActivate(inst, doer)
+    if not IsForestWorld() then
+        DenyWrongWorld(doer)
+        inst.components.activatable.inactive = true
+        return false
+    end
     SendModRPCToClient(GetClientModRPC("AdventureMode", "Adventure???"), doer.userid, inst.GUID,
         ZipAndEncodeString({
             body = GetBodyText(),
