@@ -11,6 +11,29 @@ local function IsForestWorld()
         ShardWorldIndex:GetRuntimeWorldType() == "forest"
 end
 
+-- teleportato_teleport has no exit of its own, so a failed start must release players.
+local function RecoverPlayerFromTransition(player)
+    if not player:IsValid() or not player.is_teleporting then
+        return
+    end
+
+    player.is_teleporting = nil
+    if player.sg.currentstate ~= nil and
+        player.sg.currentstate.name == "teleportato_teleport" then
+        player.sg:GoToState("idle")
+    end
+    player:SetCameraDistance()
+end
+
+local function OnAdventureStartFailed(inst)
+    if inst:IsValid() then
+        inst._adventure_transitioning = nil
+    end
+    for _, player in ipairs(AllPlayers) do
+        RecoverPlayerFromTransition(player)
+    end
+end
+
 local function Adventure(inst)
     if inst._adventure_transitioning or not IsForestWorld() then
         return false
@@ -18,42 +41,36 @@ local function Adventure(inst)
 
     inst._adventure_transitioning = true
     for _, player in pairs(AllPlayers) do
-        if player.components.health and not player.components.health:IsDead() then
+        if not player.components.health:IsDead() then
+            player.is_teleporting = true
             player.sg:GoToState("teleportato_teleport")
         end
     end
     TheWorld:DoTaskInTime(5, function()
         local function oncomplete(success)
-            if not success and inst:IsValid() then
-                inst._adventure_transitioning = nil
+            if not success then
+                OnAdventureStartFailed(inst)
             end
         end
-        if not ShardGameIndex.adventure:Start(nil, oncomplete) and inst:IsValid() then
-            inst._adventure_transitioning = nil
+        if not ShardGameIndex.adventure:Start(nil, oncomplete) then
+            OnAdventureStartFailed(inst)
         end
     end)
     return true
 end
 
 local function DenyVote(doer, message)
-    if doer.userid ~= nil then
-        SendModRPCToClient(GetClientModRPC("AdventureMode", "AdventureVoteDenied"), doer.userid, message)
-    end
+    SendModRPCToClient(GetClientModRPC("AdventureMode", "AdventureVoteDenied"), doer.userid, message)
 end
 
 local function DenyWrongWorld(doer)
-    if doer.userid ~= nil then
-        SendModRPCToClient(
-            GetClientModRPC("AdventureMode", "AdventurePortalWrongWorld"),
-            doer.userid
-        )
-    end
+    SendModRPCToClient(
+        GetClientModRPC("AdventureMode", "AdventurePortalWrongWorld"),
+        doer.userid
+    )
 end
 
 local function RequestAdventureEntry(inst, doer)
-    if doer == nil or not doer:IsValid() or doer.userid == nil or doer.userid == "" then
-        return false
-    end
     if not doer:IsNear(inst, 10) then
         DenyVote(doer, STRINGS.UI.ADVENTUREMODE_VOTE.TOO_FAR)
         return false
@@ -63,10 +80,6 @@ local function RequestAdventureEntry(inst, doer)
         return false
     end
 
-    if ShardGameIndex == nil or ShardGameIndex.adventure == nil then
-        DenyVote(doer, STRINGS.UI.ADVENTUREMODE_VOTE.FAILED)
-        return false
-    end
     if ShardGameIndex.adventure:IsActive() then
         DenyVote(doer, STRINGS.UI.ADVENTUREMODE_VOTE.ALREADY_ACTIVE)
         return false
