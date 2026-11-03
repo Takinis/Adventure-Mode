@@ -3,8 +3,8 @@ local function IsValidUserId(userid)
 end
 
 local function IsLivingPlayer(player)
-	return player ~= nil and IsValidUserId(player.userid) and player.components.health ~= nil and
-		not player.components.health:IsDead() and not player:HasTag("playerghost")
+	return IsValidUserId(player.userid) and not player.components.health:IsDead() and
+		not player:HasTag("playerghost")
 end
 
 local function RecoverPlayerFromTransition(player)
@@ -13,13 +13,11 @@ local function RecoverPlayerFromTransition(player)
 	end
 
 	player.is_teleporting = nil
-	if player.sg ~= nil and player.sg.currentstate ~= nil and
+	if player.sg.currentstate ~= nil and
 		player.sg.currentstate.name == "teleportato_teleport" then
 		player.sg:GoToState("idle")
 	end
-	if player.SetCameraDistance ~= nil then
-		player:SetCameraDistance()
-	end
+	player:SetCameraDistance()
 end
 
 local function RunProgressCheck(inst, self)
@@ -42,10 +40,8 @@ local function AdvanceShard(world, self, playersessions)
 		end
 		self.activating = false
 		self.confirmedplayers = {}
-		if self.inst.components.activatable ~= nil then
-			self.inst.components.activatable.inactive = true
-		end
-		for _, player in ipairs(AllPlayers or {}) do
+		self.inst.components.activatable.inactive = true
+		for _, player in ipairs(AllPlayers) do
 			RecoverPlayerFromTransition(player)
 			self:Deny(player, STRINGS.UI.HUD.TELEPORTATO_TRANSITION_FAILED)
 		end
@@ -68,7 +64,7 @@ local TeleportatoTravel = Class(function(self, inst)
 	end
 	self.onplayerleft = function(_, player)
 		self:StopTrackingPlayer(player)
-		if player ~= nil and IsValidUserId(player.userid) then
+		if IsValidUserId(player.userid) then
 			self.confirmedplayers[player.userid] = nil
 		end
 	end
@@ -76,7 +72,7 @@ local TeleportatoTravel = Class(function(self, inst)
 	inst:ListenForEvent("ms_playerspawn", self.onplayerspawned, TheWorld)
 	inst:ListenForEvent("master_secondaryplayerschanged", self.onsecondaryplayerschanged, TheWorld)
 	inst:ListenForEvent("ms_playerleft", self.onplayerleft, TheWorld)
-	for _, player in ipairs(AllPlayers or {}) do
+	for _, player in ipairs(AllPlayers) do
 		self:TrackPlayer(player)
 	end
 end)
@@ -91,7 +87,7 @@ function TeleportatoTravel:GetActivationProgress()
 	local confirmed = {}
 	local confirmedcount = 0
 	local playercount = 0
-	for _, player in ipairs(AllPlayers or {}) do
+	for _, player in ipairs(AllPlayers) do
 		if IsLivingPlayer(player) then
 			playercount = playercount + 1
 			if self.confirmedplayers[player.userid] then
@@ -133,11 +129,9 @@ function TeleportatoTravel:Transition(doer)
 	local playersessions = store:BuildPlayerSessions()
 
 	self.activating = true
-	if self.inst.components.activatable ~= nil then
-		self.inst.components.activatable.inactive = false
-	end
-	for _, player in ipairs(AllPlayers or {}) do
-		if player.components.health ~= nil and not player.components.health:IsDead() then
+	self.inst.components.activatable.inactive = false
+	for _, player in ipairs(AllPlayers) do
+		if not player.components.health:IsDead() then
 			player.is_teleporting = true
 			player.sg:GoToState("teleportato_teleport")
 		end
@@ -149,9 +143,6 @@ function TeleportatoTravel:Transition(doer)
 end
 
 function TeleportatoTravel:SetPlayerActivation(doer, active)
-	if doer == nil or not IsValidUserId(doer.userid) then
-		return false
-	end
 	if not active then
 		self.confirmedplayers[doer.userid] = nil
 		return false
@@ -186,10 +177,6 @@ function TeleportatoTravel:SetPlayerActivation(doer, active)
 end
 
 function TeleportatoTravel:RequestConfirmation(doer)
-	if doer == nil or not IsValidUserId(doer.userid) then
-		return
-	end
-
 	SendModRPCToClient(
 		GetClientModRPC("AdventureMode", "Adventure???"),
 		doer.userid,
@@ -204,7 +191,7 @@ function TeleportatoTravel:RequestConfirmation(doer)
 end
 
 function TeleportatoTravel:UpdateActivationAvailability()
-	if self.inst.components.activatable ~= nil and not self.activating then
+	if not self.activating then
 		self.inst.components.activatable.inactive = true
 	end
 end
@@ -216,7 +203,7 @@ function TeleportatoTravel:ScheduleProgressCheck()
 end
 
 function TeleportatoTravel:TrackPlayer(player)
-	if player == nil or self.playerdeathcallbacks[player] ~= nil then
+	if self.playerdeathcallbacks[player] ~= nil then
 		return
 	end
 
@@ -228,7 +215,7 @@ function TeleportatoTravel:TrackPlayer(player)
 end
 
 function TeleportatoTravel:StopTrackingPlayer(player)
-	local callback = player ~= nil and self.playerdeathcallbacks[player] or nil
+	local callback = self.playerdeathcallbacks[player]
 	if callback ~= nil then
 		self.inst:RemoveEventCallback("ms_becameghost", callback, player)
 		self.playerdeathcallbacks[player] = nil

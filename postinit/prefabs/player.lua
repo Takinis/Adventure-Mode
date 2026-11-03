@@ -6,10 +6,6 @@ local TITLE_SEND_RETRY_LIMIT = 30
 
 local sent_adventure_title_by_userid = {}
 
-local function GetAdventureRun()
-    return ShardGameIndex.adventure:GetState()
-end
-
 local function GetAdventureTitleData(run)
     local preset = run ~= nil and run.current_preset or nil
     local chapter = run ~= nil and run.chapter or nil
@@ -18,12 +14,11 @@ local function GetAdventureTitleData(run)
 end
 
 local function GetAdventurePresentationId(run, preset)
-
     return table.concat({
-        tostring(run ~= nil and run.sequence_id or "default"),
-        tostring(run ~= nil and run.started_at or ""),
-        tostring(run ~= nil and run.current_session_id or ""),
-        tostring(run ~= nil and run.chapter or ""),
+        tostring(run.sequence_id or "default"),
+        tostring(run.started_at or ""),
+        tostring(run.current_session_id or ""),
+        tostring(run.chapter or ""),
         tostring(preset),
     }, ":")
 end
@@ -33,15 +28,15 @@ local function ShowAdventureTitle(inst, retries)
         return
     end
 
-    if inst == nil or inst.userid == nil or inst.userid == "" then
+    if inst.userid == nil or inst.userid == "" then
         retries = (retries or 0) + 1
-        if inst ~= nil and retries <= TITLE_SEND_RETRY_LIMIT then
+        if retries <= TITLE_SEND_RETRY_LIMIT then
             inst:DoStaticTaskInTime(TITLE_RETRY_TIME, ShowAdventureTitle, retries)
         end
         return
     end
 
-    local run = GetAdventureRun()
+    local run = ShardGameIndex.adventure:GetState()
     local preset, chapter, total = GetAdventureTitleData(run)
     if preset == nil or chapter == nil or total == nil then
         retries = (retries or 0) + 1
@@ -86,23 +81,19 @@ local function OnLocalPlayerDeactivated(inst)
     end
 end
 
-local function RememberStartingInventory(inst)
-    ShardGameIndex.adventure:RememberStartingInventory(inst)
-end
-
 local function OnAdventurePlayerActivated(inst)
     ShardGameIndex.adventure:OnPlayerActivated(inst)
 end
 
 local function OnAdventurePlayerDeactivated(inst)
-    if inst ~= nil and inst.userid ~= nil and inst.userid ~= "" then
+    if inst.userid ~= nil and inst.userid ~= "" then
         sent_adventure_title_by_userid[inst.userid] = nil
     end
     ShardGameIndex.adventure:OnPlayerDeactivated(inst)
 end
 
 AddPlayerPostInit(function(inst)
-    RememberStartingInventory(inst)
+    ShardGameIndex.adventure:RememberStartingInventory(inst)
 
     if TheWorld ~= nil and TheWorld.ismastersim then
         inst:ListenForEvent("playeractivated", OnAdventurePlayerActivated)

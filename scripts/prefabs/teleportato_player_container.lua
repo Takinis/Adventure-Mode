@@ -15,7 +15,7 @@ end
 
 local function OnAnyClose(inst)
 	inst.Network:SetClassifiedTarget(inst)
-	if inst.components.container == nil or not inst.components.container:IsOpen() then
+	if not inst.components.container:IsOpen() then
 		if inst._closecheck_task ~= nil then
 			inst._closecheck_task:Cancel()
 			inst._closecheck_task = nil
@@ -26,16 +26,13 @@ end
 local function CheckTeleportatoDistance(inst)
 	local base = inst._base
 	local container = inst.components.container
-	if container == nil then
-		return
-	end
 	if base == nil or not base:IsValid() then
 		container:Close()
 		return
 	end
 
 	for opener in pairs(container.openlist) do
-		if opener == nil or not opener:IsValid() or not opener:IsNear(base, 5) then
+		if not opener:IsValid() or not opener:IsNear(base, 5) then
 			container:Close(opener)
 		end
 	end

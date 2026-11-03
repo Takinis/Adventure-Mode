@@ -26,10 +26,6 @@ local function CopySlotRecords(records)
 end
 
 local function BuildSlotRecords(container)
-	if container == nil or not container:IsValid() or container.components.container == nil then
-		return nil
-	end
-
 	local out = {}
 	local hasany = false
 	for _, slot in ipairs(SLOT_ORDER) do
@@ -126,15 +122,11 @@ function TeleportatoStore:SetOnContainerChangedFn(fn)
 end
 
 function TeleportatoStore:NotifyContainerChanged()
-	if self.oncontainerchangedfn ~= nil then
-		self.oncontainerchangedfn(self.inst)
-	end
+	self.oncontainerchangedfn(self.inst)
 end
 
 function TeleportatoStore:SaveContainer(userid, container)
-	if IsValidUserId(userid) then
-		self.playerstores[userid] = BuildSlotRecords(container)
-	end
+	self.playerstores[userid] = BuildSlotRecords(container)
 end
 
 function TeleportatoStore:UntrackContainer(container)
@@ -167,10 +159,6 @@ function TeleportatoStore:TrackContainer(userid, container)
 end
 
 function TeleportatoStore:GetContainer(userid, create)
-	if not IsValidUserId(userid) then
-		return nil
-	end
-
 	local container = self.playercontainers[userid]
 	if container ~= nil and container:IsValid() then
 		return container
@@ -180,10 +168,6 @@ function TeleportatoStore:GetContainer(userid, create)
 	end
 
 	container = SpawnPrefab("teleportato_player_container")
-	if container == nil then
-		return nil
-	end
-
 	local x, y, z = self.inst.Transform:GetWorldPosition()
 	container.Transform:SetPosition(x, y, z)
 	container._userid = userid
@@ -195,17 +179,10 @@ function TeleportatoStore:GetContainer(userid, create)
 end
 
 function TeleportatoStore:Open(doer)
-	if doer == nil or not IsValidUserId(doer.userid) then
-		self:NotifyContainerChanged()
-		return false
-	end
-
 	local container = self:GetContainer(doer.userid, true)
-	if container ~= nil then
-		container.components.container:Open(doer)
-		if container.components.container:IsOpenedBy(doer) then
-			return true
-		end
+	container.components.container:Open(doer)
+	if container.components.container:IsOpenedBy(doer) then
+		return true
 	end
 	self:NotifyContainerChanged()
 	return false
@@ -277,7 +254,7 @@ function TeleportatoStore:BuildPlayerSessions()
 	local seen = {}
 	local origin_session_id = GetCurrentSessionId()
 
-	for _, player in ipairs(AllPlayers or {}) do
+	for _, player in ipairs(AllPlayers) do
 		if IsValidUserId(player.userid) and player.prefab ~= nil then
 			local record = FilterInventory(player:GetSaveRecord(), self:GetSlotRecords(player.userid))
 			sessions[#sessions + 1] = {
