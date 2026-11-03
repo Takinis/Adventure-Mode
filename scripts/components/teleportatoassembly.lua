@@ -26,7 +26,7 @@ end
 
 local function FinishActivation(inst, self, doer)
 	self.activationtask = nil
-	if doer ~= nil and doer:IsValid() and self.onactivatedfn ~= nil then
+	if doer ~= nil and doer:IsValid() then
 		self.onactivatedfn(inst, doer)
 	end
 end
@@ -76,7 +76,7 @@ function TeleportatoAssembly:RefreshPartSymbols()
 end
 
 function TeleportatoAssembly:CanAccept(item)
-	return item ~= nil and self.parts[item.prefab] == false
+	return self.parts[item.prefab] == false
 end
 
 function TeleportatoAssembly:AddPart(item)
@@ -102,9 +102,7 @@ function TeleportatoAssembly:PowerUp()
 	self.inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_powerup", "teleportato_on")
 	self.inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_idle_LP", "teleportato_idle")
 
-	if self.inst.components.activatable ~= nil then
-		self.inst.components.activatable.inactive = true
-	end
+	self.inst.components.activatable.inactive = true
 	self.inst._poweredup:set(true)
 	self.inst._powerupevent:push()
 end
@@ -115,9 +113,7 @@ function TeleportatoAssembly:TryPowerUp()
 		return
 	end
 
-	if self.inst.components.trader ~= nil then
-		self.inst.components.trader:Disable()
-	end
+	self.inst.components.trader:Disable()
 
 	local rodbase = TheSim:FindFirstEntityWithTag("rodbase")
 	if rodbase ~= nil and rodbase.components.lock ~= nil and rodbase.components.lock:IsLocked() then
@@ -133,16 +129,12 @@ end
 
 function TeleportatoAssembly:Activate(doer)
 	if not self:IsComplete() then
-		if self.inst.components.activatable ~= nil then
-			self.inst.components.activatable.inactive = false
-		end
+		self.inst.components.activatable.inactive = false
 		return false
 	end
 
 	if self.activatedonce then
-		if self.onactivatedfn ~= nil then
-			self.onactivatedfn(self.inst, doer)
-		end
+		self.onactivatedfn(self.inst, doer)
 		return true
 	end
 
@@ -191,14 +183,10 @@ function TeleportatoAssembly:LoadData(data)
 			self.inst.AnimState:PlayAnimation("idle_on", true)
 			self.inst.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_idle_LP", "teleportato_idle")
 		end
-		if self.inst.components.activatable ~= nil then
-			self.inst.components.activatable.inactive = true
-		end
+		self.inst.components.activatable.inactive = true
 		self.inst._poweredup:set(true)
 	else
-		if self.inst.components.activatable ~= nil then
-			self.inst.components.activatable.inactive = false
-		end
+		self.inst.components.activatable.inactive = false
 		self:TryPowerUp()
 	end
 end

@@ -8,10 +8,8 @@ local function MakeAdventureIntroState(server_states)
         server_states = server_states,
 
         onenter = function(inst)
-            if inst.components.locomotor ~= nil then
-                inst.components.locomotor:Stop()
-                inst.components.locomotor:StopMoving()
-            end
+            inst.components.locomotor:Stop()
+            inst.components.locomotor:StopMoving()
             inst:ClearBufferedAction()
             inst.AnimState:PlayAnimation("sleep")
             if inst.components.playercontroller ~= nil then

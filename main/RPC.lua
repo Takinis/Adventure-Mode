@@ -648,7 +648,7 @@ AddShardModRPCHandler("AdventureMode", "ReturnFromAdventureReply", function(shar
 end)
 
 local function IsCurrentAdventureResetRequest(adventure, opts)
-    local run = adventure ~= nil and adventure:GetState() or nil
+    local run = adventure:GetState()
     if run == nil or run.active ~= true then
         return false
     end
@@ -700,7 +700,7 @@ AddShardModRPCHandler("AdventureMode", "ResetAdventureWorld", function(shardid, 
     local worldindex = GetShardGameWorldIndex()
     local replied = false
     local function reply(success)
-        if replied or worldindex == nil or type(opts.request_id) ~= "string" or opts.request_id == "" then
+        if replied then
             return
         end
         replied = true
@@ -783,11 +783,6 @@ AddShardModRPCHandler("AdventureMode", "ReturnFromAdventure", function(shardid, 
         end
     end
 
-    if adventure == nil then
-        reply(false)
-        return
-    end
-
     if TheWorld ~= nil then
         TheWorld:DoTaskInTime(0, function()
             adventure:ReturnFromShard(reason, reply)
@@ -839,7 +834,7 @@ AddModRPCHandler("AdventureMode", "Adventure?", function(player, data)
         inst:SetPlayerActivation(player, data.active)
     elseif data.active then
         inst:RequestAdventureEntry(player)
-    elseif inst.components.activatable ~= nil then
+    else
         inst.components.activatable.inactive = true
     end
 end)
@@ -871,10 +866,7 @@ AddModRPCHandler("AdventureMode", "UnlockMaxwell", function(player, guid, respon
     if inst == nil or not inst:IsValid() or not inst:HasTag("maxwelllock") then
         return
     end
-    if inst.components.lock == nil then
-        return
-    end
-    if inst._unlocker_userid ~= nil and (player == nil or player.userid ~= inst._unlocker_userid) then
+    if inst._unlocker_userid ~= nil and player.userid ~= inst._unlocker_userid then
         return
     end
 

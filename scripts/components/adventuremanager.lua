@@ -7,20 +7,11 @@ return Class(function(self, inst)
     local enter_parts_island = false
     local watched_players = {}
 
-    local function IsTwoLands()
-        return TheWorld:IsAdventurePreset("TWOLANDS")
-    end
-
-    local function IsPartsIslandArea(area)
-        return table.contains(area.tags, PARTS_ISLAND_TAG)
-    end
-
-    function self:ApplyTwoLandsPartsIslandWeather()
-        local world = TheWorld or inst
-        world:PushEvent("ms_setprecipitationmode", "dynamic")
-        world:PushEvent("ms_setmoisturescale", 2)
-        world:PushEvent("ms_forceprecipitation", true)
-        world:PushEvent("ms_setseasonsegmodifier", PARTS_ISLAND_SEASON_SEGS)
+    local function ApplyTwoLandsPartsIslandWeather()
+        inst:PushEvent("ms_setprecipitationmode", "dynamic")
+        inst:PushEvent("ms_setmoisturescale", 2)
+        inst:PushEvent("ms_forceprecipitation", true)
+        inst:PushEvent("ms_setseasonsegmodifier", PARTS_ISLAND_SEASON_SEGS)
     end
 
     local function TriggerTwoLandsPartsIsland(player)
@@ -31,17 +22,17 @@ return Class(function(self, inst)
         end
 
         enter_parts_island = true
-        self:ApplyTwoLandsPartsIslandWeather()
+        ApplyTwoLandsPartsIslandWeather()
     end
 
     local function OnPlayerAreaChanged(player, area)
-        if IsTwoLands() and IsPartsIslandArea(area) then
+        if TheWorld:IsAdventurePreset("TWOLANDS") and table.contains(area.tags, PARTS_ISLAND_TAG) then
             TriggerTwoLandsPartsIsland(player)
         end
     end
 
     local function CheckPlayerArea(player)
-        if player == nil or not player:IsValid() or player.components == nil or player.components.areaaware == nil then
+        if not player:IsValid() then
             return
         end
 
@@ -51,7 +42,7 @@ return Class(function(self, inst)
     end
 
     local function WatchPlayer(player)
-        if player == nil or watched_players[player] then
+        if watched_players[player] then
             return
         end
 
@@ -63,10 +54,8 @@ return Class(function(self, inst)
     end
 
     local function StopWatchingPlayer(player)
-        if player ~= nil then
-            watched_players[player] = nil
-            player:RemoveEventCallback("changearea", OnPlayerAreaChanged)
-        end
+        watched_players[player] = nil
+        player:RemoveEventCallback("changearea", OnPlayerAreaChanged)
     end
 
     local function OnPlayerJoined(world, player)
@@ -84,22 +73,6 @@ return Class(function(self, inst)
     inst:ListenForEvent("ms_playerjoined", OnPlayerJoined)
     inst:ListenForEvent("ms_playerleft", OnPlayerLeft)
 
-    function self:IsTwoLands()
-        return IsTwoLands()
-    end
-
-    function self:HasEnteredPartsIsland()
-        return enter_parts_island
-    end
-
-    function self:WatchPlayer(player)
-        WatchPlayer(player)
-    end
-
-    function self:StopWatchingPlayer(player)
-        StopWatchingPlayer(player)
-    end
-
     function self:OnSave()
         return {
             enter_parts_island = enter_parts_island == true,
@@ -110,7 +83,7 @@ return Class(function(self, inst)
         enter_parts_island = data ~= nil and data.enter_parts_island == true
         if enter_parts_island then
             inst:DoTaskInTime(0, function()
-                self:ApplyTwoLandsPartsIslandWeather()
+                ApplyTwoLandsPartsIslandWeather()
             end)
         end
     end
